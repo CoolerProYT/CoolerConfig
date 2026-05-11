@@ -64,15 +64,15 @@ public final class ConfigSpec {
     /**
      * Returns a new {@link ConfigBuilder} for the given mod ID and format.
      *
-     * @param name   base mod identifier; the actual file name is derived by the builder as
-     *               {@code <name>-<side>.toml} or {@code <name>-<side>.conf}, e.g.
+     * @param modId   base mod identifier; the actual file modId is derived by the builder as
+     *               {@code <modId>-<side>.toml} or {@code <modId>-<side>.conf}, e.g.
      *               {@code "mymod"} with the default {@link ConfigSide#COMMON} side →
      *               {@code mymod-common.toml}
      * @param format the file format to use
      * @return a fresh builder
      */
-    public static ConfigBuilder builder(String name, ConfigFormat format) {
-        return new ConfigBuilder(name, format);
+    public static ConfigBuilder builder(String modId, ConfigFormat format) {
+        return new ConfigBuilder(modId, format);
     }
 
     /**
