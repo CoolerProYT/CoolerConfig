@@ -96,22 +96,28 @@ Call `ConfigSpec.builder(...)` during your mod's **init phase** (inside `onIniti
 public static final ConfigSpec CONFIG = ConfigSpec.builder("mymod", ConfigFormat.TOML)
         .side(ConfigSide.COMMON)           // optional — COMMON is the default
         .comment("My mod configuration")   // TOML file header comment
-        .define("general.enableFeature", true,   "Enable the main feature")
+        .defineBoolean("general.enableFeature", true,   "Enable the main feature")
         .defineInt("general.maxItems",    64, 1, 1000, "Maximum item count")
+        .defineLong("general.seed",       0L, Long.MIN_VALUE, Long.MAX_VALUE, "World seed")
         .defineDouble("general.scale",    1.5, 0.1, 10.0, "Scale multiplier")
         .defineString("general.message",  "Hello!", "Chat message")
+        .defineEnum("general.difficulty", Difficulty.NORMAL, "Difficulty level")
         .defineList("general.blacklist",  List.of("minecraft:dirt"), "Blacklisted items")
+        .defineMap("general.weights",     Map.of("common", 10, "rare", 1), "Loot weights")
         .build();  // creates file if absent, loads values, registers with ConfigRegistry
 ```
 
 Read values anywhere after init:
 
 ```java
-boolean on  = CONFIG.getBoolean("general.enableFeature");
-int     max = CONFIG.getInt("general.maxItems");
-double  s   = CONFIG.getDouble("general.scale");
-String  msg = CONFIG.getString("general.message");
-List<String> bl = CONFIG.getList("general.blacklist");
+boolean      on   = CONFIG.getBoolean("general.enableFeature");
+int          max  = CONFIG.getInt("general.maxItems");
+long         seed = CONFIG.getLong("general.seed");
+double       s    = CONFIG.getDouble("general.scale");
+String       msg  = CONFIG.getString("general.message");
+Difficulty   diff = CONFIG.getEnum("general.difficulty");
+List<String> bl   = CONFIG.getList("general.blacklist");
+Map<String, Integer> w = CONFIG.getMap("general.weights");
 ```
 
 ---
@@ -144,7 +150,7 @@ Control which physical side loads a config with `.side(ConfigSide.X)`:
 // A visual-only config — never loads on a headless server
 public static final ConfigSpec HUD_CONFIG = ConfigSpec.builder("mymod-client", ConfigFormat.TOML)
         .side(ConfigSide.CLIENT)
-        .define("hud.showTimer", true, "Show the countdown timer")
+        .defineBoolean("hud.showTimer", true, "Show the countdown timer")
         .defineInt("hud.x", 10, 0, 1920, "HUD X position")
         .build();
 
@@ -220,10 +226,14 @@ Built-in validators:
 
 | Method | Validator |
 |---|---|
+| `defineBoolean(path, default, comment)` | must be a Boolean |
 | `defineInt(path, default, min, max, comment)` | `min <= value <= max` |
+| `defineLong(path, default, min, max, comment)` | `min <= value <= max` |
 | `defineDouble(path, default, min, max, comment)` | `min <= value <= max` |
 | `defineString(...)` | must be a String |
+| `defineEnum(path, default, comment)` | name must match a constant of the enum type |
 | `defineList(...)` | must be a List |
+| `defineMap(path, default, comment)` | must be a Map |
 | `define(path, default, comment, validator)` | custom `Predicate<Object>` |
 
 ```java
@@ -241,14 +251,14 @@ public class MyModConfig {
 
     public static final ConfigSpec COMMON = ConfigSpec.builder("mymod", ConfigFormat.TOML)
             .comment("MyMod common configuration")
-            .define("general.enable",   true,   "Enable all MyMod features")
+            .defineBoolean("general.enable",   true,   "Enable all MyMod features")
             .defineInt("general.count", 10, 1, 100, "Spawn count per wave")
             .build();
 
     public static final ConfigSpec CLIENT = ConfigSpec.builder("mymod-client", ConfigFormat.TOML)
             .side(ConfigSide.CLIENT)
             .comment("MyMod client-only configuration")
-            .define("display.particles", true, "Show particle effects")
+            .defineBoolean("display.particles", true, "Show particle effects")
             .defineInt("display.range",  32, 1, 256, "Render range in blocks")
             .build();
 

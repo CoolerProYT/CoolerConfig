@@ -2,11 +2,13 @@ package com.coolerpromc.coolerconfig.config;
 
 import com.coolerpromc.coolerconfig.Constants;
 import com.coolerpromc.coolerconfig.platform.Services;
+import com.electronwill.nightconfig.core.UnmodifiableConfig;
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -210,7 +212,8 @@ final class ConfigManager {
             fileConfig.setComment("", " " + headerComment);
         }
         for (ConfigEntry<?> entry : spec.getEntries().values()) {
-            fileConfig.set(entry.getPath(), entry.get());
+            Object value = entry.get() instanceof Enum<?> e ? e.name() : entry.get();
+            fileConfig.set(entry.getPath(), value);
             if (!entry.getComment().isEmpty()) {
                 fileConfig.setComment(entry.getPath(), " " + entry.getComment());
             }
@@ -252,6 +255,9 @@ final class ConfigManager {
             String path = e.getKey();
             ConfigEntry<?> entry = e.getValue();
             Object raw = fileConfig.get(path);
+            if (raw instanceof UnmodifiableConfig subConfig && entry.getDefaultValue() instanceof Map<?, ?>) {
+                raw = new LinkedHashMap<>(subConfig.valueMap());
+            }
             if (raw == null) {
                 entry.set(entry.getDefaultValue());
             } else if (!entry.validate(raw)) {

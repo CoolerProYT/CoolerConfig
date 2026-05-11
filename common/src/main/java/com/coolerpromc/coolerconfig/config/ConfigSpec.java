@@ -167,6 +167,15 @@ public final class ConfigSpec {
     public int getInt(String path) { return get(path); }
 
     /**
+     * Returns the {@code long} value of the entry at {@code path}.
+     *
+     * @param path dot-separated key path
+     * @return the current value
+     * @throws IllegalArgumentException if no entry exists at {@code path}
+     */
+    public long getLong(String path) { return get(path); }
+
+    /**
      * Returns the {@code double} value of the entry at {@code path}.
      *
      * @param path dot-separated key path
@@ -193,6 +202,26 @@ public final class ConfigSpec {
      * @throws IllegalArgumentException if no entry exists at {@code path}
      */
     public <T> List<T> getList(String path) { return get(path); }
+
+    /**
+     * Returns the enum value of the entry at {@code path}.
+     *
+     * @param path dot-separated key path
+     * @param <E>  the enum type
+     * @return the current value; never {@code null}
+     * @throws IllegalArgumentException if no entry exists at {@code path}
+     */
+    public <E extends Enum<E>> E getEnum(String path) { return get(path); }
+
+    /**
+     * Returns the {@code Map<String, V>} value of the entry at {@code path}.
+     *
+     * @param path dot-separated key path
+     * @param <V>  the map value type
+     * @return the current map; never {@code null}
+     * @throws IllegalArgumentException if no entry exists at {@code path}
+     */
+    public <V> Map<String, V> getMap(String path) { return get(path); }
 
     /**
      * Performs the initial load of this config from disk.

@@ -10,15 +10,24 @@ import java.util.function.Predicate;
  * {@link ConfigSpec#getInt(String)}).
  *
  * <h2>Type coercion</h2>
- * Night-Config deserialises TOML integers as {@code Long} and always uses {@code Double} for
- * floating-point numbers, regardless of the value's magnitude. To keep validator predicates
- * simple and consistent with the declared default type, {@link #set(Object)} and
- * {@link #validate(Object)} both pass the raw file value through {@link #coerce(Object)}
- * before testing the predicate. This means a {@code defineInt} entry whose validator checks
- * {@code v instanceof Integer} will still match a {@code Long} read from a TOML file.
+ * Raw values from Night-Config do not always match the declared Java type, so
+ * {@link #set(Object)} and {@link #validate(Object)} both pass the raw value through
+ * {@link #coerce(Object)} before the validator predicate is tested:
+ * <ul>
+ *   <li><b>Numeric:</b> TOML integers arrive as {@code Long} and floats as {@code Double};
+ *       coercion narrows them to the exact numeric type of the default value so that a
+ *       {@code defineInt} validator written as {@code v instanceof Integer} still matches.</li>
+ *   <li><b>Enum:</b> enum entries are stored in the file as the constant's {@link Enum#name()
+ *       name} string. Coercion converts that string back to the matching constant via
+ *       {@link Enum#valueOf}; an unrecognised name is passed through unchanged so the
+ *       validator can reject it and trigger a reset to the default.</li>
+ *   <li><b>Map:</b> Night-Config represents TOML tables and HOCON objects as internal
+ *       {@code UnmodifiableConfig} objects. Map coercion is handled by {@link ConfigManager}
+ *       before the value reaches this class.</li>
+ * </ul>
  *
  * @param <T> the Java type of the config value (e.g. {@code Integer}, {@code Boolean},
- *            {@code String}, {@code List<String>})
+ *            {@code String}, {@code List<String>}, {@code MyEnum})
  */
 public final class ConfigEntry<T> {
 
@@ -124,24 +133,35 @@ public final class ConfigEntry<T> {
     }
 
     /**
-     * Normalises numeric types to match the Java type of {@link #defaultValue}.
+     * Normalises the raw file value to the Java type expected by this entry.
      *
-     * <p>Night-Config deserialises TOML integers as {@code Long} and floating-point literals
-     * as {@code Double}. Without coercion a validator written as
-     * {@code v instanceof Integer} would never match a {@code Long} from a TOML file. This
-     * method converts any {@link Number} to the exact numeric type expected by this entry so
-     * that validators and callers always see a consistent type.
+     * <ul>
+     *   <li><b>Numeric:</b> any {@link Number} is narrowed to the exact type of
+     *       {@link #defaultValue} ({@code int}, {@code long}, {@code double}, or
+     *       {@code float}) so validators and callers always see a consistent type.</li>
+     *   <li><b>Enum:</b> if the default is an enum constant and the raw value is a
+     *       {@code String}, {@link Enum#valueOf} is attempted. On success the matching
+     *       constant is returned; on failure the original string is returned unchanged
+     *       so the validator can reject it and trigger a reset to the default.</li>
+     * </ul>
      *
-     * @param rawValue the value as returned by Night-Config
-     * @return the coerced value, or {@code rawValue} unchanged if it is not a {@link Number}
-     *         or the default value is not a numeric type
+     * @param rawValue the value as returned by Night-Config (or from {@link ConfigManager})
+     * @return the coerced value, or {@code rawValue} unchanged if no coercion applies
      */
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private Object coerce(Object rawValue) {
         if (rawValue instanceof Number n) {
             if (defaultValue instanceof Integer) return n.intValue();
             if (defaultValue instanceof Long)    return n.longValue();
             if (defaultValue instanceof Double)  return n.doubleValue();
             if (defaultValue instanceof Float)   return n.floatValue();
+        }
+        if (defaultValue instanceof Enum<?> e && rawValue instanceof String s) {
+            try {
+                return Enum.valueOf((Class<Enum>) e.getDeclaringClass(), s);
+            } catch (IllegalArgumentException ignored) {
+                return rawValue; // unknown name; validator will reject and reset to default
+            }
         }
         return rawValue;
     }

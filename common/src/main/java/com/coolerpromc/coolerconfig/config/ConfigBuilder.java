@@ -18,10 +18,12 @@ import java.util.function.Predicate;
  * public static final ConfigSpec CONFIG = ConfigSpec.builder("mymod", ConfigFormat.TOML)
  *         .side(ConfigSide.COMMON)
  *         .comment("MyMod configuration")
- *         .define("general.enable", true, "Enable all MyMod features")
+ *         .defineBoolean("general.enable", true, "Enable all MyMod features")
  *         .defineInt("general.count", 10, 1, 100, "Spawn count per wave")
  *         .defineDouble("general.scale", 1.5, 0.1, 10.0, "Scale multiplier")
  *         .defineString("general.mode", "normal", "Operation mode")
+ *         .defineEnum("general.difficulty", Difficulty.NORMAL, "Difficulty level")
+ *         .defineMap("general.weights", Map.of("common", 10, "rare", 1), "Loot weights")
  *         .build();
  * }</pre>
  *
@@ -95,7 +97,7 @@ public final class ConfigBuilder {
      * @return {@code this} builder, for chaining
      * @throws IllegalArgumentException if {@code path} has already been declared
      */
-    public ConfigBuilder define(String path, boolean defaultValue, String comment) {
+    public ConfigBuilder defineBoolean(String path, boolean defaultValue, String comment) {
         return put(path, defaultValue, comment, v -> v instanceof Boolean);
     }
 
@@ -136,6 +138,63 @@ public final class ConfigBuilder {
      */
     public ConfigBuilder defineDouble(String path, double defaultValue, double min, double max, String comment) {
         return put(path, defaultValue, comment, v -> v instanceof Double d && d >= min && d <= max);
+    }
+
+    /**
+     * Declares a {@code long} entry with an inclusive range constraint.
+     *
+     * @param path         dot-separated key path
+     * @param defaultValue value used when the key is absent or out of range; must satisfy
+     *                     {@code min <= defaultValue <= max}
+     * @param min          minimum accepted value (inclusive)
+     * @param max          maximum accepted value (inclusive)
+     * @param comment      human-readable description
+     * @return {@code this} builder, for chaining
+     * @throws IllegalArgumentException if {@code path} has already been declared
+     */
+    public ConfigBuilder defineLong(String path, long defaultValue, long min, long max, String comment) {
+        return put(path, defaultValue, comment, v -> v instanceof Long l && l >= min && l <= max);
+    }
+
+    /**
+     * Declares an enum entry.
+     *
+     * <p>The enum constant is stored in the config file as its {@link Enum#name() name} string.
+     * On load, the string is converted back to the matching constant. Unrecognised names reset
+     * the entry to {@code defaultValue}.
+     *
+     * <pre>{@code
+     * .defineEnum("general.difficulty", Difficulty.NORMAL, "Difficulty level")
+     * }</pre>
+     *
+     * @param path         dot-separated key path
+     * @param defaultValue value used when the key is absent or the stored string cannot be
+     *                     matched to a constant
+     * @param comment      human-readable description
+     * @param <E>          the enum type
+     * @return {@code this} builder, for chaining
+     * @throws IllegalArgumentException if {@code path} has already been declared
+     */
+    public <E extends Enum<E>> ConfigBuilder defineEnum(String path, E defaultValue, String comment) {
+        return put(path, defaultValue, comment, v -> v != null && v.getClass() == defaultValue.getClass());
+    }
+
+    /**
+     * Declares a {@code Map<String, V>} entry.
+     *
+     * <p>In TOML files the map is written as an inline table section (e.g.
+     * {@code [general.weights]}). Values must be Night-Config-compatible primitives
+     * ({@code String}, {@code Integer}, {@code Long}, {@code Double}, {@code Boolean}).
+     *
+     * @param path         dot-separated key path
+     * @param defaultValue value used when the key is absent or the stored value is not a map
+     * @param comment      human-readable description
+     * @param <V>          the value type of the map
+     * @return {@code this} builder, for chaining
+     * @throws IllegalArgumentException if {@code path} has already been declared
+     */
+    public <V> ConfigBuilder defineMap(String path, Map<String, V> defaultValue, String comment) {
+        return put(path, defaultValue, comment, v -> v instanceof Map<?, ?>);
     }
 
     /**
