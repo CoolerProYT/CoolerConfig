@@ -163,6 +163,23 @@ public static final ConfigSpec SERVER_CONFIG = ConfigSpec.builder("mymod-server"
 
 ---
 
+## Hot-reload (file watching)
+
+Call `.watchForChanges()` on the builder to have the config automatically re-read whenever the file is saved on disk:
+
+```java
+public static final ConfigSpec CONFIG = ConfigSpec.builder("mymod", ConfigFormat.TOML)
+        .defineBoolean("general.enable", true, "Enable features")
+        .watchForChanges()   // daemon thread watches the file; calls reload() on every save
+        .build();
+```
+
+After `build()`, a daemon `WatchService` thread starts for the config directory. When the file is saved, the thread waits 150 ms (debounce — most editors write in two steps) then calls `reload()`, which re-reads values from disk and fires all registered reload listeners.
+
+The watcher thread is a daemon — it stops automatically when the JVM exits.
+
+---
+
 ## Reload listeners
 
 Register callbacks that fire after every `reload()`. Use this to recompute values that are derived from raw config entries.

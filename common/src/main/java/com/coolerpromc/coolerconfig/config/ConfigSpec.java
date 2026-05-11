@@ -52,12 +52,12 @@ public final class ConfigSpec {
      * @param entries       immutable, insertion-ordered map of path → entry
      * @param headerComment TOML file-level header comment; empty string if none
      */
-    ConfigSpec(String name, ConfigFormat format, ConfigSide side, Map<String, ConfigEntry<?>> entries, String headerComment) {
+    ConfigSpec(String name, ConfigFormat format, ConfigSide side, Map<String, ConfigEntry<?>> entries, String headerComment, boolean watchForChanges) {
         this.name = name;
         this.format = format;
         this.side = side;
         this.entries = entries;
-        this.manager = new ConfigManager(this, headerComment);
+        this.manager = new ConfigManager(this, headerComment, watchForChanges);
         ConfigRegistry.register(this);
     }
 
@@ -234,6 +234,7 @@ public final class ConfigSpec {
      */
     public void load() {
         manager.load();
+        manager.startWatcherIfEnabled();
     }
 
     /**
@@ -263,6 +264,17 @@ public final class ConfigSpec {
      */
     public void reload() {
         manager.reload();
+        reloadListeners.forEach(Runnable::run);
+    }
+
+    /**
+     * Called by the file-watcher thread. Uses {@link ConfigManager#reloadQuiet()} so that
+     * the file is not unconditionally rewritten — only when a correction was needed. This
+     * breaks the feedback loop that would otherwise occur when the rewrite triggers a new
+     * {@code ENTRY_MODIFY} event.
+     */
+    void reloadWatch() {
+        manager.reloadQuiet();
         reloadListeners.forEach(Runnable::run);
     }
 }

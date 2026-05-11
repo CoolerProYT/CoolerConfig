@@ -2,14 +2,21 @@ package com.coolerpromc.coolerconfig.config;
 
 import com.coolerpromc.coolerconfig.Constants;
 import com.coolerpromc.coolerconfig.platform.Services;
+import com.electronwill.nightconfig.core.CommentedConfig;
 import com.electronwill.nightconfig.core.UnmodifiableConfig;
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
 
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchEvent;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Internal I/O layer that bridges a {@link ConfigSpec} to its backing file via Night-Config.
@@ -61,6 +68,7 @@ final class ConfigManager {
 
     private final ConfigSpec spec;
     private final String headerComment;
+    private final boolean watchForChanges;
     private CommentedFileConfig fileConfig;
 
     /**
@@ -70,9 +78,10 @@ final class ConfigManager {
      * @param headerComment file-level header comment; written above all keys; empty string
      *                      if the builder's {@code comment()} was not called
      */
-    ConfigManager(ConfigSpec spec, String headerComment) {
+    ConfigManager(ConfigSpec spec, String headerComment, boolean watchForChanges) {
         this.spec = spec;
         this.headerComment = headerComment;
+        this.watchForChanges = watchForChanges;
     }
 
     /**
@@ -164,6 +173,24 @@ final class ConfigManager {
     }
 
     /**
+     * Re-reads the config file from disk and updates in-memory values, but only rewrites the
+     * file if at least one value was invalid and had to be corrected.
+     *
+     * <p>Used exclusively by the file-watcher path. Skipping the unconditional rewrite breaks
+     * the feedback loop where {@link #writeToDisk()} would generate a new {@code ENTRY_MODIFY}
+     * event and cause the watcher to fire again indefinitely.
+     */
+    void reloadQuiet() {
+        if (!shouldLoad()) return;
+        fileConfig.load();
+        boolean corrected = correctAndFill();
+        if (corrected) {
+            fileConfig.clear();
+            writeToDisk();
+        }
+    }
+
+    /**
      * Writes the current in-memory values to disk, overwriting any existing file.
      *
      * <p>If {@link #shouldLoad()} returns {@code false} this is a no-op. If the Night-Config
@@ -212,8 +239,7 @@ final class ConfigManager {
             fileConfig.setComment("", " " + headerComment);
         }
         for (ConfigEntry<?> entry : spec.getEntries().values()) {
-            Object value = entry.get() instanceof Enum<?> e ? e.name() : entry.get();
-            fileConfig.set(entry.getPath(), value);
+            fileConfig.set(entry.getPath(), toWritable(entry.get()));
             if (!entry.getComment().isEmpty()) {
                 fileConfig.setComment(entry.getPath(), " " + entry.getComment());
             }
@@ -250,7 +276,8 @@ final class ConfigManager {
      * they are eliminated by the caller clearing {@link #fileConfig} before
      * {@link #writeToDisk()}.
      */
-    private void correctAndFill() {
+    private boolean correctAndFill() {
+        boolean corrected = false;
         for (Map.Entry<String, ConfigEntry<?>> e : spec.getEntries().entrySet()) {
             String path = e.getKey();
             ConfigEntry<?> entry = e.getValue();
@@ -264,10 +291,76 @@ final class ConfigManager {
                 Constants.LOG.warn("[CoolerConfig] '{}': invalid value '{}', resetting to default '{}'",
                         path, raw, entry.getDefaultValue());
                 entry.set(entry.getDefaultValue());
+                corrected = true;
             } else {
                 entry.set(raw);
             }
         }
+        return corrected;
+    }
+
+    /**
+     * Starts a daemon {@link WatchService} thread for the config file if
+     * {@code watchForChanges} was enabled on the builder.
+     *
+     * <p>The thread polls the config directory every 2 seconds. When it detects that this
+     * specific file was modified, it sleeps 150 ms (debounce — editors often write in two
+     * steps) then calls {@link ConfigSpec#reload()}, which re-reads values from disk and
+     * fires all registered reload listeners.
+     *
+     * <p>If the config should not load on the current side (e.g. a CLIENT config on a
+     * dedicated server) this method does nothing.
+     */
+    void startWatcherIfEnabled() {
+        if (!watchForChanges || !shouldLoad()) return;
+        Path configFile = configPath();
+        Thread thread = new Thread(() -> {
+            try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
+                configFile.getParent().register(watcher, StandardWatchEventKinds.ENTRY_MODIFY);
+                Constants.LOG.debug("[CoolerConfig] Watching '{}' for changes", configFile.getFileName());
+                while (!Thread.currentThread().isInterrupted()) {
+                    WatchKey key = watcher.poll(2, TimeUnit.SECONDS);
+                    if (key == null) continue;
+                    boolean relevant = false;
+                    for (WatchEvent<?> event : key.pollEvents()) {
+                        if (configFile.getFileName().equals(event.context())) {
+                            relevant = true;
+                        }
+                    }
+                    key.reset();
+                    if (relevant) {
+                        Thread.sleep(150);
+                        spec.reloadWatch();
+                    }
+                }
+            } catch (InterruptedException ignored) {
+            } catch (IOException e) {
+                Constants.LOG.warn("[CoolerConfig] File watcher for '{}' failed: {}", spec.getName(), e.getMessage());
+            }
+        }, "CoolerConfig-Watcher-" + spec.getName());
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    /**
+     * Converts a Java value to a type that Night-Config's TOML/HOCON writer can serialize.
+     *
+     * <ul>
+     *   <li>{@link Enum} constants are stored as their {@link Enum#name() name} string.</li>
+     *   <li>{@link Map} values are converted to an in-memory {@link CommentedConfig} sub-table
+     *       so the TOML/HOCON writer sees a native config object rather than a raw Java Map,
+     *       which it cannot serialize.</li>
+     *   <li>All other values are returned unchanged.</li>
+     * </ul>
+     */
+    private static Object toWritable(Object value) {
+        if (value instanceof Enum<?> e) return e.name();
+        if (value instanceof Map<?, ?> map) {
+            CommentedConfig sub = CommentedConfig.inMemory();
+            map.forEach((k, v) -> sub.set(k.toString(), v));
+            return sub;
+        }
+        return value;
     }
 
     /**

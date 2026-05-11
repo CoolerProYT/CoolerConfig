@@ -43,6 +43,7 @@ public final class ConfigBuilder {
     private ConfigSide side = ConfigSide.COMMON;
     private final Map<String, ConfigEntry<?>> entries = new LinkedHashMap<>();
     private String headerComment = "";
+    private boolean watchForChanges = false;
 
     /**
      * Package-private constructor — obtain instances via {@link ConfigSpec#builder(String, ConfigFormat)}.
@@ -82,6 +83,23 @@ public final class ConfigBuilder {
      */
     public ConfigBuilder comment(String comment) {
         this.headerComment = comment;
+        return this;
+    }
+
+    /**
+     * Enables automatic hot-reload when the config file is modified on disk.
+     *
+     * <p>After {@link #build()} is called, a daemon {@link java.nio.file.WatchService} thread
+     * is started for the config directory. Whenever the file is saved, the thread waits
+     * 150 ms (to let editors finish writing), then calls {@link ConfigSpec#reload()}, which
+     * re-reads values from disk and fires all registered reload listeners.
+     *
+     * <p>The watcher thread is a daemon — it stops automatically when the JVM exits.
+     *
+     * @return {@code this} builder, for chaining
+     */
+    public ConfigBuilder watchForChanges() {
+        this.watchForChanges = true;
         return this;
     }
 
@@ -303,7 +321,7 @@ public final class ConfigBuilder {
      * @return the immutable, loaded {@link ConfigSpec}
      */
     public ConfigSpec build() {
-        ConfigSpec spec = new ConfigSpec(modId + "-" + side.toString().toLowerCase(Locale.ROOT), format, side, Map.copyOf(entries), headerComment);
+        ConfigSpec spec = new ConfigSpec(modId + "-" + side.toString().toLowerCase(Locale.ROOT), format, side, Map.copyOf(entries), headerComment, watchForChanges);
         spec.load();
         return spec;
     }
