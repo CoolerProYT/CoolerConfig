@@ -289,11 +289,20 @@ public class MyMod {
 
 ## File locations
 
-Config files are written to the standard loader config directory:
+Config files are written to the standard loader config directory. The file name is derived
+automatically from the mod ID passed to `ConfigSpec.builder()` plus the config side:
 
-| Loader | Path |
+```
+.minecraft/config/<modId>-<side>.toml   (TOML)
+.minecraft/config/<modId>-<side>.conf   (HOCON)
+```
+
+Examples:
+
+| Builder call | File created |
 |---|---|
-| Fabric | `.minecraft/config/<name>.toml` |
-| NeoForge | `.minecraft/config/<name>.toml` |
+| `builder("mymod", TOML)` (COMMON default) | `mymod-common.toml` |
+| `builder("mymod", TOML).side(CLIENT)` | `mymod-client.toml` |
+| `builder("mymod", HOCON).side(SERVER)` | `mymod-server.conf` |
 
 The directory is created automatically on first run.

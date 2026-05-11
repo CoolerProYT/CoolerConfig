@@ -45,7 +45,9 @@ public final class ConfigBuilder {
     /**
      * Package-private constructor — obtain instances via {@link ConfigSpec#builder(String, ConfigFormat)}.
      *
-     * @param modId   file name without extension, e.g. {@code "mymod"} → {@code mymod.toml}
+     * @param modId  base mod identifier; the actual file name is
+     *               {@code <modId>-<side>.toml/.conf}, e.g. {@code "mymod"} with
+     *               {@link ConfigSide#COMMON} → {@code mymod-common.toml}
      * @param format the serialisation format to use
      */
     ConfigBuilder(String modId, ConfigFormat format) {
@@ -70,8 +72,8 @@ public final class ConfigBuilder {
     /**
      * Sets a header comment written at the top of the config file.
      *
-     * <p>Only effective for {@link ConfigFormat#TOML} files. The comment is rendered as a
-     * block of {@code #}-prefixed lines before the first key.
+     * <p>Effective for both {@link ConfigFormat#TOML} and {@link ConfigFormat#HOCON} files.
+     * The comment is rendered as {@code #}-prefixed lines before the first key.
      *
      * @param comment the header text; must not be {@code null}
      * @return {@code this} builder, for chaining
@@ -225,9 +227,14 @@ public final class ConfigBuilder {
      * Builds the {@link ConfigSpec}, registers it with {@link ConfigRegistry}, and
      * performs the initial load from disk.
      *
-     * <p>If the config file does not yet exist it is created with all default values (and
-     * comments for TOML). If it already exists, each entry is validated; invalid values
-     * are reset to their defaults and the file is rewritten.
+     * <p>The config file name is derived as {@code <modId>-<side>.toml} (or {@code .conf}),
+     * e.g. a builder with modId {@code "mymod"} and side {@link ConfigSide#CLIENT} writes to
+     * {@code mymod-client.toml}.
+     *
+     * <p>If the file does not yet exist it is created with all default values and comments.
+     * If it already exists, values are read and validated (invalid values are reset to
+     * their defaults), and the file is always rewritten so that added fields, removed
+     * fields, and updated comment text are reflected immediately.
      *
      * <p><b>Call this during mod initialisation</b> ({@code onInitialize} /
      * {@code @Mod} constructor), not in a {@code static} initialiser block — the config

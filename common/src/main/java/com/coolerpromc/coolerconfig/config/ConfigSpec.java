@@ -62,11 +62,12 @@ public final class ConfigSpec {
     }
 
     /**
-     * Returns a new {@link ConfigBuilder} for the given file name and format.
+     * Returns a new {@link ConfigBuilder} for the given mod ID and format.
      *
-     * @param name   base file name without extension, e.g. {@code "mymod"};
-     *               the full path will be {@code <configDir>/<name>.toml} or
-     *               {@code <configDir>/<name>.conf}
+     * @param name   base mod identifier; the actual file name is derived by the builder as
+     *               {@code <name>-<side>.toml} or {@code <name>-<side>.conf}, e.g.
+     *               {@code "mymod"} with the default {@link ConfigSide#COMMON} side →
+     *               {@code mymod-common.toml}
      * @param format the file format to use
      * @return a fresh builder
      */
@@ -197,9 +198,10 @@ public final class ConfigSpec {
      * Performs the initial load of this config from disk.
      *
      * <p>Called automatically by {@link ConfigBuilder#build()}. If the file does not exist
-     * it is created with default values. If it exists, each entry is validated and any
-     * invalid values are reset to their defaults (the file is then rewritten). Reload
-     * listeners are <em>not</em> fired by this method.
+     * it is created with all default values and comments. If it exists, each entry is read
+     * and validated (invalid values are reset to their defaults), then the file is always
+     * rewritten so that added fields, removed fields, and updated comment text are reflected
+     * immediately. Reload listeners are <em>not</em> fired by this method.
      */
     public void load() {
         manager.load();
@@ -217,12 +219,14 @@ public final class ConfigSpec {
     }
 
     /**
-     * Re-reads all entries from disk and fires all registered reload listeners.
+     * Re-reads all entries from disk, rewrites the file, and fires all registered reload listeners.
      *
-     * <p>Invalid values found during reload are silently reset to their defaults and the
-     * file is rewritten. This method is called by {@link ConfigRegistry#reloadForServer()}
-     * and {@link ConfigRegistry#reloadForClient()} in response to lifecycle events, but can
-     * also be invoked manually — for example from a {@code /reload} command handler.
+     * <p>Invalid values are silently reset to their defaults and logged at {@code WARN} level.
+     * The file is always rewritten after reading so that added fields, removed fields, and
+     * updated comment text stay in sync with the current spec. This method is called by
+     * {@link ConfigRegistry#reloadForServer()} and {@link ConfigRegistry#reloadForClient()} in
+     * response to lifecycle events, but can also be invoked manually — for example from a
+     * {@code /reload} command handler.
      *
      * <p>Reload listeners run synchronously after the file has been parsed and all entry
      * values have been updated. If the config's {@link ConfigSide} does not match the
