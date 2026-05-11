@@ -5,6 +5,7 @@ plugins {
 
 dependencies {
     jarJar implementation("com.electronwill.night-config:hocon:${night_config_version}")
+    jarJar implementation("com.typesafe:config:${typesafe_config_version}")
 }
 
 neoForge {
