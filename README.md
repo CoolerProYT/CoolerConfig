@@ -29,7 +29,7 @@ Artifact IDs follow the pattern `coolerconfig-<loader>-<minecraft_version>`.
 ```groovy
 dependencies {
     // Night-Config core + toml are provided by NeoForge; hocon is JiJ'd by CoolerConfig.
-    compileOnlyApi "com.coolerpromc.coolerconfig:coolerconfig-common-26.1.2:26.1.2.0"
+    compileOnly "com.coolerpromc.coolerconfig:coolerconfig-common-26.1.2:26.1.2.0"
 }
 ```
 
