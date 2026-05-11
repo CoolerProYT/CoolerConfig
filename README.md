@@ -118,10 +118,13 @@ List<String> bl = CONFIG.getList("general.blacklist");
 
 ## Config formats
 
-| Constant | File extension | Comments written |
-|---|---|---|
-| `ConfigFormat.TOML` | `.toml` | Yes — per-entry and header |
-| `ConfigFormat.HOCON` | `.conf` | No (HOCON comments are readable but not written programmatically) |
+| Constant | File extension | Comments written | Comment syntax |
+|---|---|---|---|
+| `ConfigFormat.TOML` | `.toml` | Yes — per-entry and header | `# comment` |
+| `ConfigFormat.HOCON` | `.conf` | Yes — per-entry and header | `# comment` |
+
+> **Note:** CoolerConfig rewrites the entire file on every save/correction. Hand-written comments
+> already in the file are not preserved across a rewrite.
 
 ---
 

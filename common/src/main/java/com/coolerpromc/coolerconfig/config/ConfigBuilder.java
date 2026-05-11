@@ -2,6 +2,7 @@ package com.coolerpromc.coolerconfig.config;
 
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Predicate;
 
@@ -35,7 +36,7 @@ import java.util.function.Predicate;
  */
 public final class ConfigBuilder {
 
-    private final String name;
+    private final String modId;
     private final ConfigFormat format;
     private ConfigSide side = ConfigSide.COMMON;
     private final Map<String, ConfigEntry<?>> entries = new LinkedHashMap<>();
@@ -44,11 +45,11 @@ public final class ConfigBuilder {
     /**
      * Package-private constructor — obtain instances via {@link ConfigSpec#builder(String, ConfigFormat)}.
      *
-     * @param name   file name without extension, e.g. {@code "mymod"} → {@code mymod.toml}
+     * @param modId   file name without extension, e.g. {@code "mymod"} → {@code mymod.toml}
      * @param format the serialisation format to use
      */
-    ConfigBuilder(String name, ConfigFormat format) {
-        this.name = name;
+    ConfigBuilder(String modId, ConfigFormat format) {
+        this.modId = modId;
         this.format = format;
     }
 
@@ -236,7 +237,7 @@ public final class ConfigBuilder {
      * @return the immutable, loaded {@link ConfigSpec}
      */
     public ConfigSpec build() {
-        ConfigSpec spec = new ConfigSpec(name, format, side, Map.copyOf(entries), headerComment);
+        ConfigSpec spec = new ConfigSpec(modId + "-" + side.toString().toLowerCase(Locale.ROOT), format, side, Map.copyOf(entries), headerComment);
         spec.load();
         return spec;
     }

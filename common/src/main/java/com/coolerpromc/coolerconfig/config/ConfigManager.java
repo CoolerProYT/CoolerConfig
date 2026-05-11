@@ -3,7 +3,6 @@ package com.coolerpromc.coolerconfig.config;
 import com.coolerpromc.coolerconfig.Constants;
 import com.coolerpromc.coolerconfig.platform.Services;
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
-import com.electronwill.nightconfig.core.file.FileConfig;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -18,13 +17,13 @@ import java.util.Map;
  * {@link ConfigBuilder}, {@link ConfigEntry}) remains free of Night-Config types.
  *
  * <h2>File format dispatch</h2>
+ * Both formats use {@link CommentedFileConfig} so comments are always written.
  * <ul>
- *   <li>{@link ConfigFormat#TOML} — uses {@link CommentedFileConfig} with insertion-order
- *       preservation so that entries appear in the file in the same order they were declared
- *       in the builder. Per-entry and file-level comments are written as TOML block comments.</li>
- *   <li>{@link ConfigFormat#HOCON} — uses a plain {@link FileConfig} backed by
- *       {@code HoconFormat.instance()}. Comments are not written programmatically for HOCON
- *       files.</li>
+ *   <li>{@link ConfigFormat#TOML} — format inferred from the {@code .toml} extension;
+ *       insertion order is preserved; comments use {@code #} prefix.</li>
+ *   <li>{@link ConfigFormat#HOCON} — format supplied explicitly via {@code HoconFormat.instance()}
+ *       because Night-Config does not auto-detect {@code .conf}; comments use {@code #} prefix,
+ *       which is valid HOCON syntax.</li>
  * </ul>
  *
  * <h2>Load / reload / save semantics</h2>
@@ -46,7 +45,7 @@ final class ConfigManager {
 
     private final ConfigSpec spec;
     private final String headerComment;
-    private FileConfig fileConfig;
+    private CommentedFileConfig fileConfig;
 
     /**
      * Creates a manager for the given spec.
@@ -74,21 +73,24 @@ final class ConfigManager {
     }
 
     /**
-     * Opens (or re-opens) the Night-Config {@link FileConfig} for the spec's file path.
+     * Opens (or re-opens) the Night-Config {@link CommentedFileConfig} for the spec's file path.
      *
-     * <p>TOML specs use {@link CommentedFileConfig} with insertion-order preservation.
-     * HOCON specs use a plain {@link FileConfig} backed by {@code HoconFormat}.
+     * <p>Both formats use {@link CommentedFileConfig} so that per-entry and header comments
+     * are written for all file types. TOML infers its format from the {@code .toml} extension;
+     * HOCON must be specified explicitly via {@code HoconFormat.instance()} because Night-Config
+     * does not auto-detect {@code .conf} files. HOCON comments are written using {@code #} prefix.
      *
-     * @return a newly constructed, not-yet-loaded {@link FileConfig}
+     * @return a newly constructed, not-yet-loaded {@link CommentedFileConfig}
      */
-    private FileConfig openFileConfig() {
+    private CommentedFileConfig openFileConfig() {
         Path path = configPath();
         if (spec.getFormat() == ConfigFormat.TOML) {
             return CommentedFileConfig.builder(path)
                     .preserveInsertionOrder()
                     .build();
         } else {
-            return FileConfig.builder(path, com.electronwill.nightconfig.hocon.HoconFormat.instance())
+            return CommentedFileConfig.builder(path, com.electronwill.nightconfig.hocon.HoconFormat.instance())
+                    .preserveInsertionOrder()
                     .build();
         }
     }
@@ -177,27 +179,23 @@ final class ConfigManager {
     }
 
     /**
-     * Serialises all current entry values (and optionally their comments) to the Night-Config
-     * object and flushes it to disk.
+     * Serialises all current entry values and their comments to the Night-Config object and
+     * flushes it to disk.
      *
-     * <p>For TOML configs the file-level header comment and each entry's per-key comment are
-     * written via {@link CommentedFileConfig#setComment(String, String)}. For HOCON configs
-     * only values are written (comments are not written programmatically).
+     * <p>Because {@link #openFileConfig()} always produces a {@link CommentedFileConfig},
+     * comments are written for both TOML and HOCON. The file-level header comment (if set via
+     * {@link ConfigBuilder#comment(String)}) is written at the top of the file, followed by
+     * per-key comments above each entry. TOML uses {@code #} block comments; HOCON uses the
+     * same {@code #} prefix, which is valid HOCON syntax.
      */
     private void writeToDisk() {
-        if (spec.getFormat() == ConfigFormat.TOML && fileConfig instanceof CommentedFileConfig cf) {
-            if (!headerComment.isEmpty()) {
-                cf.setComment("", " " + headerComment);
-            }
-            for (ConfigEntry<?> entry : spec.getEntries().values()) {
-                cf.set(entry.getPath(), entry.get());
-                if (!entry.getComment().isEmpty()) {
-                    cf.setComment(entry.getPath(), " " + entry.getComment());
-                }
-            }
-        } else {
-            for (ConfigEntry<?> entry : spec.getEntries().values()) {
-                fileConfig.set(entry.getPath(), entry.get());
+        if (!headerComment.isEmpty()) {
+            fileConfig.setComment("", " " + headerComment);
+        }
+        for (ConfigEntry<?> entry : spec.getEntries().values()) {
+            fileConfig.set(entry.getPath(), entry.get());
+            if (!entry.getComment().isEmpty()) {
+                fileConfig.setComment(entry.getPath(), " " + entry.getComment());
             }
         }
         fileConfig.save();
