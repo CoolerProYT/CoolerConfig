@@ -2,7 +2,6 @@ plugins {
     id 'multiloader-loader'
     id 'net.minecraftforge.gradle'
     id 'idea'
-    id 'net.minecraftforge.jarjar'
 }
 base {
     archivesName = "${mod_name}-forge-${minecraft_version}"
@@ -46,13 +45,11 @@ repositories {
 
 sourceSets.main.resources.srcDir 'src/generated/resources'
 
-jarJar.register()
-
 dependencies {
     implementation minecraft.dependency("net.minecraftforge:forge:$minecraft_version-$forge_version")
 
-    jarJar implementation("com.electronwill.night-config:hocon:${night_config_version}")
-    jarJar implementation("com.typesafe:config:${typesafe_config_version}")
+    implementation("com.electronwill.night-config:hocon:${night_config_version}")
+    implementation("com.typesafe:config:${typesafe_config_version}")
 }
 
 sourceSets.each {
