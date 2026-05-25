@@ -283,7 +283,11 @@ final class ConfigManager {
             ConfigEntry<?> entry = e.getValue();
             Object raw = fileConfig.get(path);
             if (raw instanceof UnmodifiableConfig subConfig && entry.getDefaultValue() instanceof Map<?, ?>) {
-                raw = new LinkedHashMap<>(subConfig.valueMap());
+                LinkedHashMap<String, Object> map = new LinkedHashMap<>();
+                for (UnmodifiableConfig.Entry entry1 : subConfig.entrySet()) {
+                    map.put(entry1.getKey(), entry1.getValue());
+                }
+                raw = map;
             }
             if (raw == null) {
                 entry.set(entry.getDefaultValue());
