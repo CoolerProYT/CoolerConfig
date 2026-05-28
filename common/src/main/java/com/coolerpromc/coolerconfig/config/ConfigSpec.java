@@ -19,10 +19,12 @@ import java.util.Map;
  * (or the file is created with default values) and registered with {@link ConfigRegistry}
  * so that CoolerConfig's lifecycle events can trigger automatic reloads.
  *
- * <h2>Reading values</h2>
- * Use the typed getters — {@link #getBoolean(String)}, {@link #getInt(String)},
- * {@link #getDouble(String)}, {@link #getString(String)}, {@link #getList(String)} — or the
- * generic {@link #get(String)} if you need to cast the value yourself.
+ * <h2>Reading and writing values</h2>
+ * The preferred way is to hold the {@link ConfigValue} handles returned by the builder's
+ * {@code define*} methods and call {@link ConfigValue#get()} / {@link ConfigValue#set} on them
+ * — no string paths, no risk of typos. The typed getters on this class ({@link #getBoolean},
+ * {@link #getInt}, etc.) and {@link #set(String, Object)} remain available for generic code
+ * (e.g. a config screen that iterates all entries without knowing their types ahead of time).
  *
  * <h2>Reload listeners</h2>
  * Register callbacks with {@link #addReloadListener(Runnable)} to be notified whenever the

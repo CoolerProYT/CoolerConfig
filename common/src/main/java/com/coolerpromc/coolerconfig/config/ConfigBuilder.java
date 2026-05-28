@@ -15,16 +15,24 @@ import java.util.function.Predicate;
  *
  * <h2>Usage</h2>
  * <pre>{@code
- * public static final ConfigSpec CONFIG = ConfigSpec.builder("mymod", ConfigFormat.TOML)
- *         .side(ConfigSide.COMMON)
- *         .comment("MyMod configuration")
- *         .defineBoolean("general.enable", true, "Enable all MyMod features")
- *         .defineInt("general.count", 10, 1, 100, "Spawn count per wave")
- *         .defineDouble("general.scale", 1.5, 0.1, 10.0, "Scale multiplier")
- *         .defineString("general.mode", "normal", "Operation mode")
- *         .defineEnum("general.difficulty", Difficulty.NORMAL, "Difficulty level")
- *         .defineMap("general.weights", Map.of("common", 10, "rare", 1), "Loot weights")
- *         .build();
+ * private static final ConfigSpec CONFIG;
+ * public  static final ConfigValue<Boolean>    ENABLE     ;
+ * public  static final ConfigValue<Integer>    COUNT      ;
+ * public  static final ConfigValue<Double>     SCALE      ;
+ * public  static final ConfigValue<String>     MODE       ;
+ * public  static final ConfigValue<Difficulty> DIFFICULTY ;
+ *
+ * static {
+ *     ConfigBuilder builder = ConfigSpec.builder("mymod", ConfigFormat.TOML)
+ *             .side(ConfigSide.COMMON)
+ *             .comment("MyMod configuration");
+ *     ENABLE     = builder.defineBoolean("general.enable",     true,              "Enable all MyMod features");
+ *     COUNT      = builder.defineInt    ("general.count",      10, 1, 100,        "Spawn count per wave");
+ *     SCALE      = builder.defineDouble ("general.scale",      1.5, 0.1, 10.0,    "Scale multiplier");
+ *     MODE       = builder.defineString ("general.mode",       "normal",          "Operation mode");
+ *     DIFFICULTY = builder.defineEnum   ("general.difficulty", Difficulty.NORMAL, "Difficulty level");
+ *     CONFIG     = builder.build();
+ * }
  * }</pre>
  *
  * <h2>Key paths</h2>
@@ -104,7 +112,7 @@ public final class ConfigBuilder {
     }
 
     /**
-     * Declares a {@code boolean} entry.
+     * Declares a {@code boolean} entry and returns a typed handle to it.
      *
      * <p>The validator accepts only {@link Boolean} values; any other type found in the file
      * resets the entry to {@code defaultValue}.
@@ -112,15 +120,15 @@ public final class ConfigBuilder {
      * @param path         dot-separated key path, e.g. {@code "general.enable"}
      * @param defaultValue value used when the key is absent or invalid
      * @param comment      human-readable description; written as a comment in TOML files
-     * @return {@code this} builder, for chaining
+     * @return a {@link ConfigValue} handle for reading and writing this entry
      * @throws IllegalArgumentException if {@code path} has already been declared
      */
-    public ConfigBuilder defineBoolean(String path, boolean defaultValue, String comment) {
+    public ConfigValue<Boolean> defineBoolean(String path, boolean defaultValue, String comment) {
         return put(path, defaultValue, comment, v -> v instanceof Boolean);
     }
 
     /**
-     * Declares an {@code int} entry with an inclusive range constraint.
+     * Declares an {@code int} entry with an inclusive range constraint and returns a typed handle.
      *
      * <p>Values outside {@code [min, max]} are treated as invalid and reset to
      * {@code defaultValue}. Night-Config TOML integers are read as {@code Long}; the entry's
@@ -132,15 +140,15 @@ public final class ConfigBuilder {
      * @param min          minimum accepted value (inclusive)
      * @param max          maximum accepted value (inclusive)
      * @param comment      human-readable description
-     * @return {@code this} builder, for chaining
+     * @return a {@link ConfigValue} handle for reading and writing this entry
      * @throws IllegalArgumentException if {@code path} has already been declared
      */
-    public ConfigBuilder defineInt(String path, int defaultValue, int min, int max, String comment) {
+    public ConfigValue<Integer> defineInt(String path, int defaultValue, int min, int max, String comment) {
         return put(path, defaultValue, comment, v -> v instanceof Integer i && i >= min && i <= max);
     }
 
     /**
-     * Declares a {@code double} entry with an inclusive range constraint.
+     * Declares a {@code double} entry with an inclusive range constraint and returns a typed handle.
      *
      * <p>Values outside {@code [min, max]} are treated as invalid and reset to
      * {@code defaultValue}.
@@ -151,15 +159,15 @@ public final class ConfigBuilder {
      * @param min          minimum accepted value (inclusive)
      * @param max          maximum accepted value (inclusive)
      * @param comment      human-readable description
-     * @return {@code this} builder, for chaining
+     * @return a {@link ConfigValue} handle for reading and writing this entry
      * @throws IllegalArgumentException if {@code path} has already been declared
      */
-    public ConfigBuilder defineDouble(String path, double defaultValue, double min, double max, String comment) {
+    public ConfigValue<Double> defineDouble(String path, double defaultValue, double min, double max, String comment) {
         return put(path, defaultValue, comment, v -> v instanceof Double d && d >= min && d <= max);
     }
 
     /**
-     * Declares a {@code long} entry with an inclusive range constraint.
+     * Declares a {@code long} entry with an inclusive range constraint and returns a typed handle.
      *
      * @param path         dot-separated key path
      * @param defaultValue value used when the key is absent or out of range; must satisfy
@@ -167,22 +175,22 @@ public final class ConfigBuilder {
      * @param min          minimum accepted value (inclusive)
      * @param max          maximum accepted value (inclusive)
      * @param comment      human-readable description
-     * @return {@code this} builder, for chaining
+     * @return a {@link ConfigValue} handle for reading and writing this entry
      * @throws IllegalArgumentException if {@code path} has already been declared
      */
-    public ConfigBuilder defineLong(String path, long defaultValue, long min, long max, String comment) {
+    public ConfigValue<Long> defineLong(String path, long defaultValue, long min, long max, String comment) {
         return put(path, defaultValue, comment, v -> v instanceof Long l && l >= min && l <= max);
     }
 
     /**
-     * Declares an enum entry.
+     * Declares an enum entry and returns a typed handle.
      *
      * <p>The enum constant is stored in the config file as its {@link Enum#name() name} string.
      * On load, the string is converted back to the matching constant. Unrecognised names reset
      * the entry to {@code defaultValue}.
      *
      * <pre>{@code
-     * .defineEnum("general.difficulty", Difficulty.NORMAL, "Difficulty level")
+     * ConfigValue<Difficulty> diff = builder.defineEnum("general.difficulty", Difficulty.NORMAL, "Difficulty level");
      * }</pre>
      *
      * @param path         dot-separated key path
@@ -190,15 +198,15 @@ public final class ConfigBuilder {
      *                     matched to a constant
      * @param comment      human-readable description
      * @param <E>          the enum type
-     * @return {@code this} builder, for chaining
+     * @return a {@link ConfigValue} handle for reading and writing this entry
      * @throws IllegalArgumentException if {@code path} has already been declared
      */
-    public <E extends Enum<E>> ConfigBuilder defineEnum(String path, E defaultValue, String comment) {
+    public <E extends Enum<E>> ConfigValue<E> defineEnum(String path, E defaultValue, String comment) {
         return put(path, defaultValue, comment, v -> v != null && v.getClass() == defaultValue.getClass());
     }
 
     /**
-     * Declares a {@code Map<String, V>} entry.
+     * Declares a {@code Map<String, V>} entry and returns a typed handle.
      *
      * <p>In TOML files the map is written as an inline table section (e.g.
      * {@code [general.weights]}). Values must be Night-Config-compatible primitives
@@ -208,49 +216,49 @@ public final class ConfigBuilder {
      * @param defaultValue value used when the key is absent or the stored value is not a map
      * @param comment      human-readable description
      * @param <V>          the value type of the map
-     * @return {@code this} builder, for chaining
+     * @return a {@link ConfigValue} handle for reading and writing this entry
      * @throws IllegalArgumentException if {@code path} has already been declared
      */
-    public <V> ConfigBuilder defineMap(String path, Map<String, V> defaultValue, String comment) {
+    public <V> ConfigValue<Map<String, V>> defineMap(String path, Map<String, V> defaultValue, String comment) {
         return put(path, defaultValue, comment, v -> v instanceof Map<?, ?>);
     }
 
     /**
-     * Declares a {@code String} entry that accepts any non-null string value.
+     * Declares a {@code String} entry that accepts any non-null string value and returns a typed handle.
      *
      * @param path         dot-separated key path
      * @param defaultValue value used when the key is absent or the stored value is not a string
      * @param comment      human-readable description
-     * @return {@code this} builder, for chaining
+     * @return a {@link ConfigValue} handle for reading and writing this entry
      * @throws IllegalArgumentException if {@code path} has already been declared
      */
-    public ConfigBuilder defineString(String path, String defaultValue, String comment) {
+    public ConfigValue<String> defineString(String path, String defaultValue, String comment) {
         return put(path, defaultValue, comment, v -> v instanceof String);
     }
 
     /**
-     * Declares a {@code String} entry with a custom validator.
+     * Declares a {@code String} entry with a custom validator and returns a typed handle.
      *
      * <p>Use this overload to restrict values to a known set, apply regex matching, or
      * perform any other string-level validation:
      * <pre>{@code
-     * .defineString("mode", "normal", "Game mode",
-     *         v -> v instanceof String s && Set.of("normal", "hard", "extreme").contains(s))
+     * ConfigValue<String> mode = builder.defineString("mode", "normal", "Game mode",
+     *         v -> v instanceof String s && Set.of("normal", "hard", "extreme").contains(s));
      * }</pre>
      *
      * @param path         dot-separated key path
      * @param defaultValue value used when the key is absent or fails the validator
      * @param comment      human-readable description
      * @param validator    additional predicate; receives the already-coerced value
-     * @return {@code this} builder, for chaining
+     * @return a {@link ConfigValue} handle for reading and writing this entry
      * @throws IllegalArgumentException if {@code path} has already been declared
      */
-    public ConfigBuilder defineString(String path, String defaultValue, String comment, Predicate<Object> validator) {
+    public ConfigValue<String> defineString(String path, String defaultValue, String comment, Predicate<Object> validator) {
         return put(path, defaultValue, comment, validator);
     }
 
     /**
-     * Declares a {@code List} entry.
+     * Declares a {@code List} entry and returns a typed handle.
      *
      * <p>The validator accepts any {@link List}; element types are not checked at this level.
      * Night-Config reads TOML arrays as {@code ArrayList<Object>}, so element access should
@@ -260,15 +268,15 @@ public final class ConfigBuilder {
      * @param defaultValue value used when the key is absent or the stored value is not a list
      * @param comment      human-readable description
      * @param <T>          the declared element type (not enforced at runtime)
-     * @return {@code this} builder, for chaining
+     * @return a {@link ConfigValue} handle for reading and writing this entry
      * @throws IllegalArgumentException if {@code path} has already been declared
      */
-    public <T> ConfigBuilder defineList(String path, List<T> defaultValue, String comment) {
+    public <T> ConfigValue<List<T>> defineList(String path, List<T> defaultValue, String comment) {
         return put(path, defaultValue, comment, v -> v instanceof List<?>);
     }
 
     /**
-     * Declares an entry of any type with a fully custom validator.
+     * Declares an entry of any type with a fully custom validator and returns a typed handle.
      *
      * <p>Use this when none of the typed {@code define*} helpers fit your use case. The
      * {@code validator} predicate receives the value after {@link ConfigEntry}'s numeric
@@ -280,24 +288,26 @@ public final class ConfigBuilder {
      * @param validator    predicate that returns {@code true} for acceptable values;
      *                     {@code null} accepts any value
      * @param <T>          the Java type of the config value
-     * @return {@code this} builder, for chaining
+     * @return a {@link ConfigValue} handle for reading and writing this entry
      * @throws IllegalArgumentException if {@code path} has already been declared
      */
-    public <T> ConfigBuilder define(String path, T defaultValue, String comment, Predicate<Object> validator) {
+    public <T> ConfigValue<T> define(String path, T defaultValue, String comment, Predicate<Object> validator) {
         return put(path, defaultValue, comment, validator);
     }
 
     /**
-     * Internal helper that inserts a new {@link ConfigEntry} into the ordered map.
+     * Internal helper that inserts a new {@link ConfigEntry} into the ordered map and returns
+     * a {@link ConfigValue} handle backed by that entry.
      *
      * @throws IllegalArgumentException if {@code path} is already present
      */
-    private <T> ConfigBuilder put(String path, T defaultValue, String comment, Predicate<Object> validator) {
+    private <T> ConfigValue<T> put(String path, T defaultValue, String comment, Predicate<Object> validator) {
         if (entries.containsKey(path)) {
             throw new IllegalArgumentException("Duplicate config path: " + path);
         }
-        entries.put(path, new ConfigEntry<>(path, defaultValue, comment, validator));
-        return this;
+        ConfigEntry<T> entry = new ConfigEntry<>(path, defaultValue, comment, validator);
+        entries.put(path, entry);
+        return new ConfigValue<>(entry);
     }
 
     /**

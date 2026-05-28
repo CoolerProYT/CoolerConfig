@@ -80,6 +80,8 @@ The `ordering = "AFTER"` line ensures CoolerConfig's `@Mod` constructor (which r
 
 ```java
 import com.coolerpromc.coolerconfig.config.ConfigSpec;
+import com.coolerpromc.coolerconfig.config.ConfigBuilder;
+import com.coolerpromc.coolerconfig.config.ConfigValue;
 import com.coolerpromc.coolerconfig.config.ConfigFormat;
 import com.coolerpromc.coolerconfig.config.ConfigSide;
 // only if you need manual bulk-reload:
@@ -92,32 +94,52 @@ import com.coolerpromc.coolerconfig.config.ConfigRegistry;
 
 Call `ConfigSpec.builder(...)` during your mod's **init phase** (inside `onInitialize` / your `@Mod` constructor). Do **not** call it in a `static {}` block at class-load time — the config directory is not available yet.
 
+Each `define*` method returns a typed `ConfigValue<T>` handle. Store these as static fields and use them to read and write values — no string paths, no risk of typos.
+
 ```java
-public static final ConfigSpec CONFIG = ConfigSpec.builder("mymod", ConfigFormat.TOML)
-        .side(ConfigSide.COMMON)           // optional — COMMON is the default
-        .comment("My mod configuration")   // TOML file header comment
-        .defineBoolean("general.enableFeature", true,   "Enable the main feature")
-        .defineInt("general.maxItems",    64, 1, 1000, "Maximum item count")
-        .defineLong("general.seed",       0L, Long.MIN_VALUE, Long.MAX_VALUE, "World seed")
-        .defineDouble("general.scale",    1.5, 0.1, 10.0, "Scale multiplier")
-        .defineString("general.message",  "Hello!", "Chat message")
-        .defineEnum("general.difficulty", Difficulty.NORMAL, "Difficulty level")
-        .defineList("general.blacklist",  List.of("minecraft:dirt"), "Blacklisted items")
-        .defineMap("general.weights",     Map.of("common", 10, "rare", 1), "Loot weights")
-        .build();  // creates file if absent, loads values, registers with ConfigRegistry
+public class MyModConfig {
+
+    // Declare handles as static fields
+    public static ConfigValue<Boolean>    ENABLE_FEATURE;
+    public static ConfigValue<Integer>    MAX_ITEMS;
+    public static ConfigValue<Long>       SEED;
+    public static ConfigValue<Double>     SCALE;
+    public static ConfigValue<String>     MESSAGE;
+    public static ConfigValue<Difficulty> DIFFICULTY;
+    public static ConfigValue<List<String>> BLACKLIST;
+
+    public static ConfigSpec CONFIG;
+
+    public static void init() {
+        ConfigBuilder builder = ConfigSpec.builder("mymod", ConfigFormat.TOML)
+                .side(ConfigSide.COMMON)         // optional — COMMON is the default
+                .comment("My mod configuration"); // TOML file header comment
+
+        ENABLE_FEATURE = builder.defineBoolean("general.enableFeature", true,   "Enable the main feature");
+        MAX_ITEMS      = builder.defineInt    ("general.maxItems",    64, 1, 1000, "Maximum item count");
+        SEED           = builder.defineLong   ("general.seed",        0L, Long.MIN_VALUE, Long.MAX_VALUE, "World seed");
+        SCALE          = builder.defineDouble ("general.scale",       1.5, 0.1, 10.0, "Scale multiplier");
+        MESSAGE        = builder.defineString ("general.message",     "Hello!", "Chat message");
+        DIFFICULTY     = builder.defineEnum   ("general.difficulty",  Difficulty.NORMAL, "Difficulty level");
+        BLACKLIST      = builder.defineList   ("general.blacklist",   List.of("minecraft:dirt"), "Blacklisted items");
+
+        CONFIG = builder.build(); // creates file if absent, loads values, registers with ConfigRegistry
+    }
+}
 ```
+
+Call `MyModConfig.init()` from your mod initialiser (see [Complete example](#complete-example)).
 
 Read values anywhere after init:
 
 ```java
-boolean      on   = CONFIG.getBoolean("general.enableFeature");
-int          max  = CONFIG.getInt("general.maxItems");
-long         seed = CONFIG.getLong("general.seed");
-double       s    = CONFIG.getDouble("general.scale");
-String       msg  = CONFIG.getString("general.message");
-Difficulty   diff = CONFIG.getEnum("general.difficulty");
-List<String> bl   = CONFIG.getList("general.blacklist");
-Map<String, Integer> w = CONFIG.getMap("general.weights");
+boolean      on   = MyModConfig.ENABLE_FEATURE.get();
+int          max  = MyModConfig.MAX_ITEMS.get();
+long         seed = MyModConfig.SEED.get();
+double       s    = MyModConfig.SCALE.get();
+String       msg  = MyModConfig.MESSAGE.get();
+Difficulty   diff = MyModConfig.DIFFICULTY.get();
+List<String> bl   = MyModConfig.BLACKLIST.get();
 ```
 
 ---
@@ -148,17 +170,26 @@ Control which physical side loads a config with `.side(ConfigSide.X)`:
 
 ```java
 // A visual-only config — never loads on a headless server
-public static final ConfigSpec HUD_CONFIG = ConfigSpec.builder("mymod-client", ConfigFormat.TOML)
-        .side(ConfigSide.CLIENT)
-        .defineBoolean("hud.showTimer", true, "Show the countdown timer")
-        .defineInt("hud.x", 10, 0, 1920, "HUD X position")
-        .build();
+public static ConfigValue<Boolean> SHOW_TIMER;
+public static ConfigValue<Integer> HUD_X;
+public static ConfigSpec HUD_CONFIG;
 
 // A server-balance config
-public static final ConfigSpec SERVER_CONFIG = ConfigSpec.builder("mymod-server", ConfigFormat.TOML)
-        .side(ConfigSide.SERVER)
-        .defineDouble("balance.damageMultiplier", 1.0, 0.1, 5.0, "Damage multiplier")
-        .build();
+public static ConfigValue<Double> DAMAGE_MULTIPLIER;
+public static ConfigSpec SERVER_CONFIG;
+
+public static void init() {
+    ConfigBuilder hudBuilder = ConfigSpec.builder("mymod-client", ConfigFormat.TOML)
+            .side(ConfigSide.CLIENT);
+    SHOW_TIMER = hudBuilder.defineBoolean("hud.showTimer", true, "Show the countdown timer");
+    HUD_X      = hudBuilder.defineInt    ("hud.x", 10, 0, 1920, "HUD X position");
+    HUD_CONFIG = hudBuilder.build();
+
+    ConfigBuilder serverBuilder = ConfigSpec.builder("mymod-server", ConfigFormat.TOML)
+            .side(ConfigSide.SERVER);
+    DAMAGE_MULTIPLIER = serverBuilder.defineDouble("balance.damageMultiplier", 1.0, 0.1, 5.0, "Damage multiplier");
+    SERVER_CONFIG     = serverBuilder.build();
+}
 ```
 
 ---
@@ -168,10 +199,10 @@ public static final ConfigSpec SERVER_CONFIG = ConfigSpec.builder("mymod-server"
 Call `.watchForChanges()` on the builder to have the config automatically re-read whenever the file is saved on disk:
 
 ```java
-public static final ConfigSpec CONFIG = ConfigSpec.builder("mymod", ConfigFormat.TOML)
-        .defineBoolean("general.enable", true, "Enable features")
-        .watchForChanges()   // daemon thread watches the file; calls reload() on every save
-        .build();
+ConfigBuilder builder = ConfigSpec.builder("mymod", ConfigFormat.TOML)
+        .watchForChanges();  // daemon thread watches the file; calls reload() on every save
+ENABLE = builder.defineBoolean("general.enable", true, "Enable features");
+CONFIG = builder.build();
 ```
 
 After `build()`, a daemon `WatchService` thread starts for the config directory. When the file is saved, the thread waits 150 ms (debounce — most editors write in two steps) then calls `reload()`, which re-reads values from disk and fires all registered reload listeners.
@@ -189,7 +220,7 @@ public static double CACHED_SCALE;
 
 static {
     CONFIG.addReloadListener(() -> {
-        CACHED_SCALE = CONFIG.getDouble("general.scale") * 2.0;
+        CACHED_SCALE = SCALE.get() * 2.0;
     });
 }
 ```
@@ -211,6 +242,25 @@ CoolerConfig registers the following events internally so you do not have to:
 | `ClientLifecycleEvents.CLIENT_STARTED` (Fabric) / `FMLClientSetupEvent` (NeoForge) | `CLIENT` + `COMMON` configs |
 
 This means if a player edits a config file while the game is running and then restarts/reloads the server, values are re-read from disk automatically.
+
+---
+
+## In-game config screen
+
+`ConfigValue.set(T)` updates the value in memory. Call `CONFIG.save()` afterwards to persist it to disk. Values go through the same coercion and validation as file reads — out-of-range values silently fall back to their default.
+
+```java
+// apply changes from a config screen
+MyModConfig.MAX_ITEMS.set(32);
+MyModConfig.ENABLE_FEATURE.set(false);
+MyModConfig.CONFIG.save();
+```
+
+For generic screens that iterate all entries without knowing their types ahead of time, `ConfigSpec.set(String path, Object value)` is also available:
+
+```java
+CONFIG.set("general.maxItems", 32).set("general.enableFeature", false).save();
+```
 
 ---
 
@@ -266,27 +316,35 @@ Built-in validators:
 ```java
 public class MyModConfig {
 
-    public static final ConfigSpec COMMON = ConfigSpec.builder("mymod", ConfigFormat.TOML)
-            .comment("MyMod common configuration")
-            .defineBoolean("general.enable",   true,   "Enable all MyMod features")
-            .defineInt("general.count", 10, 1, 100, "Spawn count per wave")
-            .build();
+    // Common config handles
+    public static ConfigValue<Boolean> ENABLE;
+    public static ConfigValue<Integer> COUNT;
+    public static ConfigSpec COMMON;
 
-    public static final ConfigSpec CLIENT = ConfigSpec.builder("mymod-client", ConfigFormat.TOML)
-            .side(ConfigSide.CLIENT)
-            .comment("MyMod client-only configuration")
-            .defineBoolean("display.particles", true, "Show particle effects")
-            .defineInt("display.range",  32, 1, 256, "Render range in blocks")
-            .build();
+    // Client config handles
+    public static ConfigValue<Boolean> PARTICLES;
+    public static ConfigValue<Integer> RANGE;
+    public static ConfigSpec CLIENT;
 
     // Derived value — recomputed after every reload
     public static int EFFECTIVE_RANGE;
 
-    static {
+    public static void init() {
+        ConfigBuilder commonBuilder = ConfigSpec.builder("mymod", ConfigFormat.TOML)
+                .comment("MyMod common configuration");
+        ENABLE = commonBuilder.defineBoolean("general.enable", true,  "Enable all MyMod features");
+        COUNT  = commonBuilder.defineInt    ("general.count",  10, 1, 100, "Spawn count per wave");
+        COMMON = commonBuilder.build();
+
+        ConfigBuilder clientBuilder = ConfigSpec.builder("mymod-client", ConfigFormat.TOML)
+                .side(ConfigSide.CLIENT)
+                .comment("MyMod client-only configuration");
+        PARTICLES = clientBuilder.defineBoolean("display.particles", true, "Show particle effects");
+        RANGE     = clientBuilder.defineInt    ("display.range",     32, 1, 256, "Render range in blocks");
+        CLIENT    = clientBuilder.build();
+
         CLIENT.addReloadListener(() -> {
-            EFFECTIVE_RANGE = CLIENT.getBoolean("display.particles")
-                    ? CLIENT.getInt("display.range")
-                    : 0;
+            EFFECTIVE_RANGE = PARTICLES.get() ? RANGE.get() : 0;
         });
     }
 }
@@ -298,16 +356,14 @@ In your mod initialiser:
 // Fabric
 @Override
 public void onInitialize() {
-    MyModConfig.COMMON; // triggers static initialiser → build() → load()
-    MyModConfig.CLIENT;
+    MyModConfig.init();
 }
 
 // NeoForge
 @Mod("mymod")
 public class MyMod {
     public MyMod(IEventBus bus) {
-        MyModConfig.COMMON;
-        MyModConfig.CLIENT;
+        MyModConfig.init();
     }
 }
 ```
