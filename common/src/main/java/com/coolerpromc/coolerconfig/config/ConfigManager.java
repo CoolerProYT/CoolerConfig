@@ -191,11 +191,16 @@ final class ConfigManager {
     }
 
     /**
-     * Writes the current in-memory values to disk, overwriting any existing file.
+     * Writes the current in-memory entry values to disk, overwriting any existing file.
      *
      * <p>If {@link #shouldLoad()} returns {@code false} this is a no-op. If the Night-Config
-     * handle has not been opened yet (e.g. because the file did not exist during {@link #load()}),
+     * handle has not been opened yet (e.g. because {@link #load()} was skipped on this side),
      * it is opened here before writing.
+     *
+     * <p>Unlike {@link #load()} and {@link #reload()}, this method does <em>not</em> clear the
+     * Night-Config object before writing. The Night-Config object is either fresh (null case
+     * above) or was already canonicalised by the last load/reload; stale keys are therefore
+     * not re-introduced.
      */
     void save() {
         if (!shouldLoad()) return;
@@ -203,7 +208,6 @@ final class ConfigManager {
             ensureDirectory(configPath());
             fileConfig = openFileConfig();
         }
-        applyDefaults();
         writeToDisk();
     }
 
