@@ -224,6 +224,32 @@ public final class ConfigSpec {
     public <V> Map<String, V> getMap(String path) { return get(path); }
 
     /**
+     * Sets the in-memory value of the entry at {@code path}.
+     *
+     * <p>The value is coerced and validated the same way as values read from disk; if it
+     * fails validation the entry silently resets to its default. Call {@link #save()}
+     * afterwards to persist the change to disk.
+     *
+     * <p>Typical usage from an in-game config screen:
+     * <pre>{@code
+     * CONFIG.set("general.enable", false);
+     * CONFIG.set("general.count", 20);
+     * CONFIG.save();
+     * }</pre>
+     *
+     * @param path  dot-separated key path, e.g. {@code "general.enable"}
+     * @param value the new value
+     * @return {@code this} spec, for fluent chaining
+     * @throws IllegalArgumentException if no entry exists at {@code path}
+     */
+    public ConfigSpec set(String path, Object value) {
+        ConfigEntry<?> entry = entries.get(path);
+        if (entry == null) throw new IllegalArgumentException("No config entry at path: " + path);
+        entry.set(value);
+        return this;
+    }
+
+    /**
      * Performs the initial load of this config from disk.
      *
      * <p>Called automatically by {@link ConfigBuilder#build()}. If the file does not exist

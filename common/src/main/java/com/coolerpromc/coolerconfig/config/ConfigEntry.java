@@ -107,8 +107,16 @@ public final class ConfigEntry<T> {
      * @param rawValue the object read from the Night-Config file, or a typed value to set
      *                 directly
      */
-    @SuppressWarnings("unchecked")
-    void set(Object rawValue) {
+    /**
+     * Updates the in-memory value directly, bypassing file I/O.
+     *
+     * <p>Use this for in-game config screens. The value is coerced and validated the same way
+     * as values read from disk; invalid values silently fall back to the default. Call
+     * {@link ConfigSpec#save()} afterwards to persist the change to disk.
+     *
+     * @param rawValue the new value to set
+     */
+    public void set(Object rawValue) {
         Object coerced = coerce(rawValue);
         if (validator == null || validator.test(coerced)) {
             this.value = (T) coerced;
