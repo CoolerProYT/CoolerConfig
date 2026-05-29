@@ -21,6 +21,7 @@ dependencies {
     compileOnlyApi "com.electronwill.night-config:core:${night_config_version}"
     compileOnlyApi "com.electronwill.night-config:toml:${night_config_version}"
     compileOnlyApi "com.electronwill.night-config:hocon:${night_config_version}"
+    compileOnlyApi "com.electronwill.night-config:json:${night_config_version}"
 }
 
 configurations {

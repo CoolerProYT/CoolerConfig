@@ -5,6 +5,7 @@ import com.coolerpromc.coolerconfig.platform.Services;
 import com.electronwill.nightconfig.core.CommentedConfig;
 import com.electronwill.nightconfig.core.UnmodifiableConfig;
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
+import com.electronwill.nightconfig.core.file.FileConfig;
 
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -69,7 +70,7 @@ final class ConfigManager {
     private final ConfigSpec spec;
     private final String headerComment;
     private final boolean watchForChanges;
-    private CommentedFileConfig fileConfig;
+    private FileConfig fileConfig;
 
     /**
      * Creates a manager for the given spec.
@@ -93,7 +94,11 @@ final class ConfigManager {
      * {@link ConfigFormat#HOCON}.
      */
     private Path configPath() {
-        String ext = spec.getFormat() == ConfigFormat.TOML ? ".toml" : ".conf";
+        String ext = switch (spec.getFormat()) {
+            case TOML -> ".toml";
+            case HOCON -> ".conf";
+            case JSON -> ".json";
+        };
         return Services.PLATFORM.getConfigDirectory().resolve(spec.getName() + ext);
     }
 
@@ -107,14 +112,18 @@ final class ConfigManager {
      *
      * @return a newly constructed, not-yet-loaded {@link CommentedFileConfig}
      */
-    private CommentedFileConfig openFileConfig() {
+    private FileConfig openFileConfig() {
         Path path = configPath();
-        if (spec.getFormat() == ConfigFormat.TOML) {
-            return CommentedFileConfig.builder(path)
+        if (spec.getFormat() == ConfigFormat.JSON) {
+            return FileConfig.builder(path, com.electronwill.nightconfig.json.JsonFormat.fancyInstance())
+                    .preserveInsertionOrder()
+                    .build();
+        } else if (spec.getFormat() == ConfigFormat.HOCON) {
+            return CommentedFileConfig.builder(path, com.electronwill.nightconfig.hocon.HoconFormat.instance())
                     .preserveInsertionOrder()
                     .build();
         } else {
-            return CommentedFileConfig.builder(path, com.electronwill.nightconfig.hocon.HoconFormat.instance())
+            return CommentedFileConfig.builder(path)
                     .preserveInsertionOrder()
                     .build();
         }
@@ -239,13 +248,14 @@ final class ConfigManager {
      * per-key comments above each entry. Both TOML and HOCON use the {@code #} prefix.
      */
     private void writeToDisk() {
-        if (!headerComment.isEmpty()) {
-            fileConfig.setComment("", " " + headerComment);
+        CommentedConfig commented = fileConfig instanceof CommentedConfig c ? c : null;
+        if (commented != null && !headerComment.isEmpty()) {
+            commented.setComment("", " " + headerComment);
         }
         for (ConfigEntry<?> entry : spec.getEntries().values()) {
             fileConfig.set(entry.getPath(), toWritable(entry.get()));
-            if (!entry.getComment().isEmpty()) {
-                fileConfig.setComment(entry.getPath(), " " + entry.getComment());
+            if (commented != null && !entry.getComment().isEmpty()) {
+                commented.setComment(entry.getPath(), " " + entry.getComment());
             }
         }
         fileConfig.save();

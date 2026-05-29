@@ -12,6 +12,7 @@ package com.coolerpromc.coolerconfig.config;
  *   <tr><th>Constant</th><th>Extension</th><th>Comments written</th><th>Comment syntax</th></tr>
  *   <tr><td>{@link #TOML}</td><td>{@code .toml}</td><td>Yes</td><td>{@code # comment}</td></tr>
  *   <tr><td>{@link #HOCON}</td><td>{@code .conf}</td><td>Yes</td><td>{@code # comment}</td></tr>
+ *   <tr><td>{@link #JSON}</td><td>{@code .json}</td><td>No</td><td>N/A</td></tr>
  * </table>
  */
 public enum ConfigFormat {
@@ -35,5 +36,14 @@ public enum ConfigFormat {
      * HOCON syntax. Note that existing hand-written comments in the file are not preserved
      * across a rewrite triggered by validation correction.
      */
-    HOCON
+    HOCON,
+
+    /**
+     * JavaScript Object Notation ({@code .json}).
+     *
+     * <p>Uses Night-Config's JSON back-end with pretty-printing ({@code JsonFormat.fancyInstance()}).
+     * JSON does not support comments; any comments defined via {@link ConfigBuilder} are silently
+     * ignored for this format.
+     */
+    JSON
 }
