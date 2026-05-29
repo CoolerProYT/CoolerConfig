@@ -52,6 +52,7 @@ public final class ConfigBuilder {
     private final Map<String, ConfigEntry<?>> entries = new LinkedHashMap<>();
     private String headerComment = "";
     private boolean watchForChanges = false;
+    private String customFileName = null;
 
     /**
      * Package-private constructor — obtain instances via {@link ConfigSpec#builder(String, ConfigFormat)}.
@@ -108,6 +109,58 @@ public final class ConfigBuilder {
      */
     public ConfigBuilder watchForChanges() {
         this.watchForChanges = true;
+        return this;
+    }
+
+    /**
+     * Overrides the entire base file name used on disk.
+     *
+     * <p>By default the file is written as {@code <modId>-<side>.<ext>}, e.g.
+     * {@code mymod-common.toml}. Calling this method replaces that base name with
+     * {@code fileName} verbatim — no {@code modId} prefix is added, no {@code -side}
+     * suffix is appended. The file extension is still derived from the {@link ConfigFormat}.
+     *
+     * <pre>{@code
+     * ConfigSpec.builder("mymod", ConfigFormat.TOML)
+     *         .fileName("mymod-perf")
+     *         .build();  // → <config>/mymod-perf.toml
+     * }</pre>
+     *
+     * <p>Mutually exclusive with {@link #suffix(String)} — the last call wins.
+     *
+     * @param fileName the literal base file name (without extension); must not be {@code null} or empty
+     * @return {@code this} builder, for chaining
+     */
+    public ConfigBuilder fileName(String fileName) {
+        this.customFileName = fileName;
+        return this;
+    }
+
+    /**
+     * Overrides only the suffix portion of the default file name.
+     *
+     * <p>By default the file is written as {@code <modId>-<side>.<ext>}, e.g.
+     * {@code mymod-common.toml}. Calling this method replaces the {@code -<side>} portion
+     * with {@code -<suffix>} while keeping the {@code <modId>-} prefix and the
+     * {@link ConfigFormat}-derived extension.
+     *
+     * <pre>{@code
+     * ConfigSpec.builder("mymod", ConfigFormat.TOML)
+     *         .suffix("graphics")
+     *         .build();  // → <config>/mymod-graphics.toml
+     * }</pre>
+     *
+     * <p>The {@link ConfigSide} set via {@link #side(ConfigSide)} still controls runtime
+     * load behaviour (e.g. CLIENT specs being skipped on a dedicated server) — only the
+     * on-disk file name is affected.
+     *
+     * <p>Mutually exclusive with {@link #fileName(String)} — the last call wins.
+     *
+     * @param suffix the custom suffix (without leading dash); must not be {@code null} or empty
+     * @return {@code this} builder, for chaining
+     */
+    public ConfigBuilder suffix(String suffix) {
+        this.customFileName = modId + "-" + suffix;
         return this;
     }
 
@@ -331,7 +384,8 @@ public final class ConfigBuilder {
      * @return the immutable, loaded {@link ConfigSpec}
      */
     public ConfigSpec build() {
-        ConfigSpec spec = new ConfigSpec(modId + "-" + side.toString().toLowerCase(Locale.ROOT), format, side, Map.copyOf(entries), headerComment, watchForChanges);
+        String specName = customFileName != null ? customFileName : modId + "-" + side.toString().toLowerCase(Locale.ROOT);
+        ConfigSpec spec = new ConfigSpec(specName, format, side, Map.copyOf(entries), headerComment, watchForChanges);
         spec.load();
         return spec;
     }
