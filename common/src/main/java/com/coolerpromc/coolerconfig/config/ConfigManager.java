@@ -348,7 +348,11 @@ final class ConfigManager {
                     key.reset();
                     if (relevant) {
                         Thread.sleep(150);
-                        spec.reloadWatch();
+                        try {
+                            spec.reloadWatch();
+                        } catch (Exception e) {
+                            Constants.LOG.warn("[CoolerConfig] Failed to reload '{}' (file may be malformed, will retry on next save): {}", spec.getName(), e.getMessage());
+                        }
                     }
                 }
             } catch (InterruptedException ignored) {
