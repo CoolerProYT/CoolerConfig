@@ -1,16 +1,31 @@
 plugins {
     id 'multiloader-loader'
-    id 'net.neoforged.moddev'
+    id 'net.neoforged.moddev.legacyforge'
+}
+
+mixin {
+    add(sourceSets.main, "${mod_id}.refmap.json")
+
+    config("${mod_id}.mixins.json")
+    config("${mod_id}.forge.mixins.json")
 }
 
 dependencies {
-    jarJar implementation("com.electronwill.night-config:hocon:${night_config_version}")
+    compileOnly project(":common")
+    annotationProcessor("org.spongepowered:mixin:0.8.5-SNAPSHOT:processor")
+
+    jarJar(implementation("com.electronwill.night-config:hocon:${night_config_version}")) {
+        exclude group: 'com.typesafe', module: 'config'
+    }
     jarJar implementation("com.electronwill.night-config:json:${night_config_version}")
     jarJar implementation("com.typesafe:config:${typesafe_config_version}")
 }
 
-neoForge {
-    version = neoforge_version
+legacyForge  {
+    version = "${minecraft_version}-${forge_version}"
+
+    validateAccessTransformers = true
+
     // Automatically enable neoforge AccessTransformers if the file exists
     def at = project(':common').file('src/main/resources/META-INF/accesstransformer.cfg')
     if (at.exists()) {
@@ -38,7 +53,6 @@ neoForge {
         }
         server {
             server()
-            this.file("runs/server").createParentDirectories()
             gameDirectory = this.mkdir(this.file("runs/server"))
         }
     }
@@ -51,21 +65,9 @@ neoForge {
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
-// Implement mcgradleconventions loader attribute
-def loaderAttribute = Attribute.of('io.github.mcgradleconventions.loader', String)
-['apiElements', 'runtimeElements', 'sourcesElements', 'javadocElements'].each { variant ->
-    configurations.named("$variant") {
-        attributes {
-            attribute(loaderAttribute, 'neoforge')
-        }
-    }
-}
-sourceSets.configureEach {
-    [it.compileClasspathConfigurationName, it.runtimeClasspathConfigurationName, it.getTaskName(null, 'jarJar')].each { variant ->
-        configurations.named("$variant") {
-            attributes {
-                attribute(loaderAttribute, 'neoforge')
-            }
-        }
-    }
+jar {
+    finalizedBy('reobfJar')
+    manifest.attributes([
+            "MixinConfigs": "${mod_id}.mixins.json,${mod_id}.forge.mixins.json"
+    ])
 }
