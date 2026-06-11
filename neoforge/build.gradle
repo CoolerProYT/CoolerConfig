@@ -3,6 +3,17 @@ plugins {
     id 'net.neoforged.moddev'
 }
 
+repositories {
+    maven {
+        name = "Maven for PR #3198" // https://github.com/neoforged/NeoForge/pull/3198
+        url = uri("https://prmaven.neoforged.net/NeoForge/pr3198")
+        content {
+            includeModule("net.neoforged", "neoforge")
+            includeModule("net.neoforged", "testframework")
+        }
+    }
+}
+
 dependencies {
     jarJar implementation("com.electronwill.night-config:hocon:${night_config_version}")
     jarJar implementation("com.electronwill.night-config:json:${night_config_version}")
