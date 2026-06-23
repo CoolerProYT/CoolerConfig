@@ -1,6 +1,6 @@
 # CoolerConfig
 
-A multiloader (Fabric + NeoForge) configuration library for Minecraft 26.1, built on top of [Night-Config](https://github.com/TheElectronWill/night-config). Supports **TOML** and **HOCON** formats with side-aware loading, comment support, validation, and lifecycle-event-driven reloading.
+A multiloader (Fabric + NeoForge) configuration library for Minecraft 26.1, built on top of [Night-Config](https://github.com/TheElectronWill/night-config). Supports **TOML**, **HOCON**, **JSON**, and **JSON5** formats with side-aware loading, comment support, validation, and lifecycle-event-driven reloading.
 
 ---
 
@@ -150,6 +150,13 @@ List<String> bl   = MyModConfig.BLACKLIST.get();
 |---|---|---|---|
 | `ConfigFormat.TOML` | `.toml` | Yes — per-entry and header | `# comment` |
 | `ConfigFormat.HOCON` | `.conf` | Yes — per-entry and header | `# comment` |
+| `ConfigFormat.JSON` | `.json` | No | N/A |
+| `ConfigFormat.JSON5` | `.json5` | Yes — per-entry and header | `// comment` |
+
+> **JSON5:** [JSON5](https://json5.org/) is a strict superset of JSON. Unlike plain `JSON`, the
+> `JSON5` format writes comments. Files are emitted as pretty-printed, still-valid JSON; on read,
+> the full JSON5 syntax (comments, trailing commas, single quotes, unquoted keys, hex numbers, …)
+> is accepted, so hand-edited files using those features load correctly.
 
 > **Note:** CoolerConfig rewrites the entire file on every save/correction. Hand-written comments
 > already in the file are not preserved across a rewrite.
@@ -376,8 +383,10 @@ Config files are written to the standard loader config directory. The file name 
 automatically from the mod ID passed to `ConfigSpec.builder()` plus the config side:
 
 ```
-.minecraft/config/<modId>-<side>.toml   (TOML)
-.minecraft/config/<modId>-<side>.conf   (HOCON)
+.minecraft/config/<modId>-<side>.toml    (TOML)
+.minecraft/config/<modId>-<side>.conf    (HOCON)
+.minecraft/config/<modId>-<side>.json    (JSON)
+.minecraft/config/<modId>-<side>.json5   (JSON5)
 ```
 
 Examples:
