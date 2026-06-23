@@ -68,6 +68,18 @@ jar {
     }
 }
 
+// CoolerConfig is consumed as a library, so its javadoc is a shipped artifact rather than a
+// developer convenience. Keep the accessibility/HTML checks that make it readable, but do not
+// fail the build over undocumented @param tags on loader glue classes nobody calls.
+tasks.named('javadoc', Javadoc).configure {
+    options.encoding = 'UTF-8'
+    options.addStringOption('Xdoclint:all,-missing', '-quiet')
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
 processResources {
     var expandProps = [
             'version'                      : version,
@@ -82,10 +94,14 @@ processResources {
             'license'                      : license,
             'description'                  : project.description,
             'neoforge_version'             : neoforge_version,
+            'neoforge_version_range'       : neoforge_version_range,
             'neoforge_loader_version_range': neoforge_loader_version_range,
             'credits'                      : credits,
             'java_version'                 : java_version,
-            'night_config_version'         : night_config_version
+            'night_config_version'         : night_config_version,
+            'homepage_url'                 : homepage_url,
+            'sources_url'                  : sources_url,
+            'issues_url'                   : issues_url
     ]
 
     var jsonExpandProps = expandProps.collectEntries {
@@ -96,7 +112,7 @@ processResources {
         expand expandProps
     }
 
-    filesMatching(['pack.mcmeta', 'fabric.mod.json', '*.mixins.json']) {
+    filesMatching(['pack.mcmeta', 'fabric.mod.json']) {
         expand jsonExpandProps
     }
 
@@ -108,14 +124,43 @@ publishing {
         register('mavenJava', MavenPublication) {
             artifactId base.archivesName.get()
             from components.java
+
+            pom {
+                name = "${mod_name} (${project.name})"
+                description = project.description
+                url = homepage_url
+                licenses {
+                    license {
+                        name = license
+                        url = 'https://creativecommons.org/publicdomain/zero/1.0/'
+                    }
+                }
+                developers {
+                    developer {
+                        id = mod_author
+                        name = mod_author
+                    }
+                }
+                scm {
+                    url = sources_url
+                    connection = "scm:git:${sources_url}.git"
+                    developerConnection = "scm:git:${sources_url}.git"
+                }
+            }
         }
     }
     repositories {
-        maven {
-            url = findProperty("maven_url")
-            credentials {
-                username = findProperty("maven_username")
-                password = findProperty("maven_password")
+        // Only declare the remote repo when it has actually been configured (normally in
+        // ~/.gradle/gradle.properties). Otherwise `url = null` breaks configuration for everyone
+        // who just wants to build the mod or publish to mavenLocal.
+        if (project.findProperty('maven_url')) {
+            maven {
+                name = 'CoolerProMC'
+                url = project.findProperty('maven_url')
+                credentials {
+                    username = project.findProperty('maven_username')
+                    password = project.findProperty('maven_password')
+                }
             }
         }
     }

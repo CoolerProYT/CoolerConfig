@@ -5,11 +5,11 @@ package com.coolerpromc.coolerconfig.config;
  *
  * <p>Obtain instances from the {@code define*} methods on {@link ConfigBuilder}:
  * <pre>{@code
- * private static final ConfigSpec CONFIG;
- * public  static final ConfigValue<Boolean> ENABLE;
- * public  static final ConfigValue<Integer> COUNT;
+ * public static ConfigSpec CONFIG;
+ * public static ConfigValue<Boolean> ENABLE;
+ * public static ConfigValue<Integer> COUNT;
  *
- * static {
+ * public static void init() {
  *     ConfigBuilder builder = ConfigSpec.builder("mymod", ConfigFormat.TOML)
  *             .comment("MyMod configuration");
  *     ENABLE = builder.defineBoolean("general.enable", true,  "Enable all features");
@@ -52,16 +52,33 @@ public final class ConfigValue<T> {
     }
 
     /**
-     * Updates the in-memory value of this entry.
+     * Updates the in-memory value, reporting whether it was acceptable.
      *
-     * <p>The value is coerced and validated the same way as values read from disk; an
-     * invalid value silently falls back to the default. Call {@link ConfigSpec#save()}
-     * afterwards to persist the change to disk.
+     * <p>The value is validated exactly as if it had been read from the config file. <b>A
+     * rejected value leaves the entry unchanged</b> and returns {@code false}; it does not
+     * reset the entry to its default. Call {@link ConfigSpec#save()} afterwards to persist an
+     * accepted change to disk.
+     *
+     * <pre>{@code
+     * if (!MAX_ITEMS.set(userInput)) {
+     *     showError("Value out of range");
+     * }
+     * }</pre>
      *
      * @param value the new value to set
+     * @return {@code true} if the value was accepted and stored, {@code false} if it failed
+     *         validation and the entry was left untouched
      */
-    public void set(T value) {
-        entry.set(value);
+    public boolean set(T value) {
+        return entry.set(value);
+    }
+
+    /**
+     * Restores this entry's default value. Call {@link ConfigSpec#save()} afterwards to persist
+     * the reset to disk.
+     */
+    public void reset() {
+        entry.reset();
     }
 
     /**
@@ -74,5 +91,34 @@ public final class ConfigValue<T> {
      */
     public T getDefault() {
         return entry.getDefaultValue();
+    }
+
+    /**
+     * Returns the dot-separated key path of this entry, e.g. {@code "general.maxItems"}.
+     *
+     * @return the key path; never {@code null}
+     */
+    public String getPath() {
+        return entry.getPath();
+    }
+
+    /**
+     * Returns the human-readable description declared at build time, or an empty string if none
+     * was given. Useful as a tooltip in a config screen.
+     *
+     * @return the comment; never {@code null}
+     */
+    public String getComment() {
+        return entry.getComment();
+    }
+
+    /**
+     * Returns the underlying entry, for generic tooling that needs
+     * {@link ConfigEntry#getType() type} metadata.
+     *
+     * @return the backing entry; never {@code null}
+     */
+    public ConfigEntry<T> getEntry() {
+        return entry;
     }
 }
