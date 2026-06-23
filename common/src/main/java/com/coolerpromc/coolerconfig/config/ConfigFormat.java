@@ -45,5 +45,21 @@ public enum ConfigFormat {
      * JSON does not support comments; any comments defined via {@link ConfigBuilder} are silently
      * ignored for this format.
      */
-    JSON
+    JSON,
+
+    /**
+     * JSON5 ({@code .json5}).
+     *
+     * <p>JSON5 (<a href="https://json5.org/">json5.org</a>) is a strict superset of JSON that
+     * permits comments, trailing commas, single quotes, and unquoted keys. Night-Config has no
+     * built-in JSON5 back-end, so CoolerConfig supplies its own ({@code Json5Format}).
+     *
+     * <p>Unlike {@link #JSON}, this format <b>does</b> write comments: entry comments defined via
+     * {@link ConfigBuilder#defineInt(String, int, int, int, String)} (and similar) are written as
+     * {@code //} lines above each key, and the file-level header from {@link ConfigBuilder#comment(String)}
+     * is written at the top. Output is pretty-printed and remains valid plain JSON; on read, the
+     * full range of JSON5 syntax is accepted, so hand-edited files using JSON5 features are parsed
+     * correctly.
+     */
+    JSON5
 }

@@ -98,6 +98,7 @@ final class ConfigManager {
             case TOML -> ".toml";
             case HOCON -> ".conf";
             case JSON -> ".json";
+            case JSON5 -> ".json5";
         };
         return Services.PLATFORM.getConfigDirectory().resolve(spec.getName() + ext);
     }
@@ -116,6 +117,10 @@ final class ConfigManager {
         Path path = configPath();
         if (spec.getFormat() == ConfigFormat.JSON) {
             return FileConfig.builder(path, com.electronwill.nightconfig.json.JsonFormat.fancyInstance())
+                    .preserveInsertionOrder()
+                    .build();
+        } else if (spec.getFormat() == ConfigFormat.JSON5) {
+            return CommentedFileConfig.builder(path, Json5Format.instance())
                     .preserveInsertionOrder()
                     .build();
         } else if (spec.getFormat() == ConfigFormat.HOCON) {
