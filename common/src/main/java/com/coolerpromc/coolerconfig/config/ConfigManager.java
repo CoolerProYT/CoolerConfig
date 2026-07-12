@@ -15,7 +15,9 @@ import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -258,12 +260,54 @@ final class ConfigManager {
             commented.setComment("", " " + headerComment);
         }
         for (ConfigEntry<?> entry : spec.getEntries().values()) {
-            fileConfig.set(entry.getPath(), toWritable(entry.get()));
+            Object encoded = entry.encode();
+            if (encoded == null) {
+                // Codec-backed entry whose value failed to encode; encode() already warned.
+                continue;
+            }
+            Object writable = toWritable(encoded);
+            if (spec.getFormat() == ConfigFormat.HOCON) {
+                warnAboutHoconDottedKeys(entry.getPath(), writable);
+            }
+            fileConfig.set(entry.getPath(), writable);
             if (commented != null && !entry.getComment().isEmpty()) {
                 commented.setComment(entry.getPath(), " " + entry.getComment());
             }
         }
         fileConfig.save();
+    }
+
+    /**
+     * Warns about map keys that HOCON cannot round-trip.
+     *
+     * <p>HOCON reads an unquoted {@code .} in a key as a path separator, and Night-Config's
+     * {@code HoconWriter} only quotes keys containing one of
+     * {@code $ " { } [ ] : = , + # ` ^ ? ! @ * & \} — a set that does <em>not</em> include
+     * {@code .}. A key such as {@code "mymod.enabled"} is therefore written bare, re-parsed as a
+     * nested object {@code mymod { enabled = ... }} on the next load, and then fails validation —
+     * silently resetting the whole entry (and every other key in the same map) to its default.
+     *
+     * <p>The bug is in the upstream writer, so we cannot quote the key from here. Warning loudly
+     * is better than losing the value quietly. Keys containing {@code :} (such as
+     * {@code minecraft:stone}) are fine — the writer does quote those.
+     */
+    private static void warnAboutHoconDottedKeys(String entryPath, Object value) {
+        if (value instanceof UnmodifiableConfig config) {
+            for (UnmodifiableConfig.Entry child : config.entrySet()) {
+                if (child.getKey().indexOf('.') >= 0) {
+                    Constants.LOG.warn("[CoolerConfig] '{}': the map key '{}' contains a '.', which "
+                                    + "HOCON reads as a path separator. This entry will reset to its "
+                                    + "default on the next load. Use TOML, JSON, or JSON5 for maps "
+                                    + "with dotted keys.",
+                            entryPath, child.getKey());
+                }
+                warnAboutHoconDottedKeys(entryPath, child.getValue());
+            }
+        } else if (value instanceof List<?> list) {
+            for (Object element : list) {
+                warnAboutHoconDottedKeys(entryPath, element);
+            }
+        }
     }
 
     /**
@@ -300,14 +344,7 @@ final class ConfigManager {
         for (Map.Entry<String, ConfigEntry<?>> e : spec.getEntries().entrySet()) {
             String path = e.getKey();
             ConfigEntry<?> entry = e.getValue();
-            Object raw = fileConfig.get(path);
-            if (raw instanceof UnmodifiableConfig subConfig && entry.getDefaultValue() instanceof Map<?, ?>) {
-                LinkedHashMap<String, Object> map = new LinkedHashMap<>();
-                for (UnmodifiableConfig.Entry entry1 : subConfig.entrySet()) {
-                    map.put(entry1.getKey(), entry1.getValue());
-                }
-                raw = map;
-            }
+            Object raw = toJava(fileConfig.get(path));
             if (raw == null) {
                 entry.set(entry.getDefaultValue());
             } else if (!entry.validate(raw)) {
@@ -316,10 +353,44 @@ final class ConfigManager {
                 entry.set(entry.getDefaultValue());
                 corrected = true;
             } else {
-                entry.set(raw);
+                entry.setRaw(raw);
             }
         }
         return corrected;
+    }
+
+    /**
+     * Recursively converts a value read from Night-Config into a pure-Java tree.
+     *
+     * <p>Night-Config models TOML tables / HOCON objects / JSON objects as
+     * {@link UnmodifiableConfig}, which neither {@link ConfigEntry}'s validators nor
+     * {@link com.mojang.serialization.JavaOps} understand. This flattens the whole tree to
+     * {@link LinkedHashMap} (preserving key order), {@link ArrayList}, and boxed primitives —
+     * the exact shape {@code JavaOps} decodes from, and the shape {@code defineMap} /
+     * {@code defineList} entries expect.
+     *
+     * <p>Recursion matters: a codec for a record containing a nested record produces a config
+     * inside a config, and only the outermost level would otherwise be converted.
+     *
+     * @param value a value straight out of {@link #fileConfig}, possibly {@code null}
+     * @return the equivalent plain-Java value, or {@code null} if {@code value} was {@code null}
+     */
+    private static Object toJava(Object value) {
+        if (value instanceof UnmodifiableConfig config) {
+            LinkedHashMap<String, Object> map = new LinkedHashMap<>();
+            for (UnmodifiableConfig.Entry entry : config.entrySet()) {
+                map.put(entry.getKey(), toJava(entry.getValue()));
+            }
+            return map;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> converted = new ArrayList<>(list.size());
+            for (Object element : list) {
+                converted.add(toJava(element));
+            }
+            return converted;
+        }
+        return value;
     }
 
     /**
@@ -370,13 +441,20 @@ final class ConfigManager {
     }
 
     /**
-     * Converts a Java value to a type that Night-Config's TOML/HOCON writer can serialize.
+     * Recursively converts a pure-Java value into types that Night-Config's writers can serialize.
+     *
+     * <p>This is the inverse of {@link #toJava(Object)}. It is applied to the output of
+     * {@link ConfigEntry#encode()}, which for codec-backed entries is already a tree of
+     * {@link Map} / {@link List} / boxed primitives produced by
+     * {@link com.mojang.serialization.JavaOps}.
      *
      * <ul>
      *   <li>{@link Enum} constants are stored as their {@link Enum#name() name} string.</li>
-     *   <li>{@link Map} values are converted to an in-memory {@link CommentedConfig} sub-table
-     *       so the TOML/HOCON writer sees a native config object rather than a raw Java Map,
-     *       which it cannot serialize.</li>
+     *   <li>{@link Map} values become an in-memory {@link CommentedConfig} sub-table, because the
+     *       writers cannot serialize a raw Java {@code Map}. Values are converted recursively so
+     *       that nested objects (a record inside a record) survive.</li>
+     *   <li>{@link List} elements are converted recursively, so a list of objects becomes a list
+     *       of config sub-tables (a TOML array-of-tables / JSON array of objects).</li>
      *   <li>All other values are returned unchanged.</li>
      * </ul>
      */
@@ -384,8 +462,17 @@ final class ConfigManager {
         if (value instanceof Enum<?> e) return e.name();
         if (value instanceof Map<?, ?> map) {
             CommentedConfig sub = CommentedConfig.inMemory();
-            map.forEach((k, v) -> sub.set(k.toString(), v));
+            // Pass the key as a single-element path: the String overload of set() splits on '.',
+            // which would explode a key like "mymod.item" into nested tables.
+            map.forEach((k, v) -> sub.set(List.of(String.valueOf(k)), toWritable(v)));
             return sub;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> converted = new ArrayList<>(list.size());
+            for (Object element : list) {
+                converted.add(toWritable(element));
+            }
+            return converted;
         }
         return value;
     }

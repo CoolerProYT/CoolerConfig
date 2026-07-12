@@ -1,5 +1,9 @@
 package com.coolerpromc.coolerconfig.config;
 
+import com.coolerpromc.coolerconfig.Constants;
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.JavaOps;
+
 import java.util.function.Predicate;
 
 /**
@@ -26,8 +30,17 @@ import java.util.function.Predicate;
  *       before the value reaches this class.</li>
  * </ul>
  *
+ * <h2>Codec-backed entries</h2>
+ * An entry declared via {@link ConfigBuilder#defineCodec} carries a {@link Codec} instead of a
+ * validator predicate. For such entries the codec <em>is</em> the validator: values read from
+ * disk are decoded with {@link JavaOps} (which speaks plain {@code Map}/{@code List}/boxed
+ * primitives — exactly the shape {@link ConfigManager} hands over), and a decode failure resets
+ * the entry to its default. Because {@code JavaOps.getNumberValue} returns a raw {@link Number},
+ * codecs handle the TOML {@code Long}/{@code Double} widening automatically — a
+ * {@code Codec.INT} field reads back as an {@code int} regardless of the file format.
+ *
  * @param <T> the Java type of the config value (e.g. {@code Integer}, {@code Boolean},
- *            {@code String}, {@code List<String>}, {@code MyEnum})
+ *            {@code String}, {@code List<String>}, {@code MyEnum}, or any codec-backed type)
  */
 public final class ConfigEntry<T> {
 
@@ -35,10 +48,11 @@ public final class ConfigEntry<T> {
     private final T defaultValue;
     private final String comment;
     private final Predicate<Object> validator;
+    private final Codec<T> codec;
     private T value;
 
     /**
-     * Creates a new entry. Package-private — use {@link ConfigBuilder} instead.
+     * Creates a new validator-backed entry. Package-private — use {@link ConfigBuilder} instead.
      *
      * @param path         dot-separated key path, e.g. {@code "general.maxItems"}
      * @param defaultValue value used when the file is absent or contains an invalid entry
@@ -52,7 +66,34 @@ public final class ConfigEntry<T> {
         this.defaultValue = defaultValue;
         this.comment = comment;
         this.validator = validator;
+        this.codec = null;
         this.value = defaultValue;
+    }
+
+    /**
+     * Creates a new codec-backed entry. Package-private — use
+     * {@link ConfigBuilder#defineCodec} instead.
+     *
+     * @param path         dot-separated key path
+     * @param defaultValue value used when the file is absent or the stored value fails to decode
+     * @param comment      human-readable description
+     * @param codec        the codec used to serialise and deserialise this entry
+     */
+    ConfigEntry(String path, T defaultValue, String comment, Codec<T> codec) {
+        this.path = path;
+        this.defaultValue = defaultValue;
+        this.comment = comment;
+        this.validator = null;
+        this.codec = codec;
+        this.value = defaultValue;
+    }
+
+    /**
+     * Returns {@code true} if this entry serialises through a {@link Codec} rather than a
+     * validator predicate.
+     */
+    boolean hasCodec() {
+        return codec != null;
     }
 
     /**
@@ -98,25 +139,28 @@ public final class ConfigEntry<T> {
     }
 
     /**
-     * Updates the in-memory value from a raw object read from the config file.
-     *
-     * <p>The raw value is first passed through {@link #coerce(Object)} to normalise numeric
-     * types, then tested against the validator. If coercion produces a value that passes
-     * validation the entry is updated; otherwise it silently falls back to the default.
-     *
-     * @param rawValue the object read from the Night-Config file, or a typed value to set
-     *                 directly
-     */
-    /**
      * Updates the in-memory value directly, bypassing file I/O.
      *
-     * <p>Use this for in-game config screens. The value is coerced and validated the same way
-     * as values read from disk; invalid values silently fall back to the default. Call
+     * <p>Use this for in-game config screens. The value is expected to already be of this
+     * entry's Java type {@code T}. For validator-backed entries it is coerced and tested
+     * against the validator; for codec-backed entries it is checked by attempting to encode
+     * it. Values that fail either check silently fall back to the default. Call
      * {@link ConfigSpec#save()} afterwards to persist the change to disk.
+     *
+     * <p>This is <em>not</em> the method used to load values from disk — see
+     * {@link #setRaw(Object)}.
      *
      * @param rawValue the new value to set
      */
+    @SuppressWarnings("unchecked")
     public void set(Object rawValue) {
+        if (codec != null) {
+            // A typed value is expected here; round-trip it through the codec to validate.
+            this.value = codec.encodeStart(JavaOps.INSTANCE, (T) rawValue).result().isPresent()
+                    ? (T) rawValue
+                    : defaultValue;
+            return;
+        }
         Object coerced = coerce(rawValue);
         if (validator == null || validator.test(coerced)) {
             this.value = (T) coerced;
@@ -126,18 +170,60 @@ public final class ConfigEntry<T> {
     }
 
     /**
-     * Returns {@code true} if the given raw value, after coercion, passes this entry's
-     * validator predicate.
+     * Updates the in-memory value from a raw value read out of the config file.
      *
-     * <p>{@link ConfigManager} uses this to decide whether a value read from disk is
-     * acceptable or should be reset to the default.
+     * <p>{@link ConfigManager} hands over a plain-Java view of the file value ({@code Map},
+     * {@code List}, or a boxed primitive — never a Night-Config type). Codec-backed entries
+     * decode that tree with {@link JavaOps}; a decode failure logs a warning and resets the
+     * entry to its default. Validator-backed entries fall through to {@link #set(Object)}.
      *
-     * @param rawValue the object as read from the Night-Config file
+     * @param rawValue the plain-Java value read from the file
+     */
+    void setRaw(Object rawValue) {
+        if (codec != null) {
+            this.value = codec.parse(JavaOps.INSTANCE, rawValue)
+                    .resultOrPartial(err -> Constants.LOG.warn(
+                            "[CoolerConfig] '{}': failed to decode value: {}", path, err))
+                    .orElse(defaultValue);
+            return;
+        }
+        set(rawValue);
+    }
+
+    /**
+     * Returns {@code true} if the given raw file value is acceptable for this entry.
+     *
+     * <p>For codec-backed entries this means "decodes cleanly"; for validator-backed entries
+     * it means "passes the validator after coercion". {@link ConfigManager} uses this to decide
+     * whether a value read from disk should be kept or reset to the default.
+     *
+     * @param rawValue the plain-Java value as read from the file
      * @return {@code true} if the value is valid for this entry
      */
     boolean validate(Object rawValue) {
+        if (codec != null) {
+            return codec.parse(JavaOps.INSTANCE, rawValue).result().isPresent();
+        }
         Object coerced = coerce(rawValue);
         return validator == null || validator.test(coerced);
+    }
+
+    /**
+     * Returns this entry's current value in the plain-Java shape that should be written to the
+     * config file.
+     *
+     * <p>Codec-backed entries are encoded with {@link JavaOps}, producing a tree of {@code Map},
+     * {@code List}, and boxed primitives that {@link ConfigManager} converts to Night-Config
+     * types. All other entries return their value unchanged.
+     *
+     * @return the encodable value, or {@code null} if a codec-backed value failed to encode
+     */
+    Object encode() {
+        if (codec == null) return value;
+        return codec.encodeStart(JavaOps.INSTANCE, value)
+                .resultOrPartial(err -> Constants.LOG.warn(
+                        "[CoolerConfig] '{}': failed to encode value: {}", path, err))
+                .orElse(null);
     }
 
     /**
