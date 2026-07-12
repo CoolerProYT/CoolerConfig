@@ -1,6 +1,6 @@
 # CoolerConfig
 
-A multiloader (Fabric + NeoForge) configuration library for Minecraft 26.1, built on top of [Night-Config](https://github.com/TheElectronWill/night-config). Supports **TOML**, **HOCON**, **JSON**, and **JSON5** formats with side-aware loading, comment support, validation, and lifecycle-event-driven reloading.
+A multiloader (Fabric + NeoForge) configuration library for Minecraft 26.1, built on top of [Night-Config](https://github.com/TheElectronWill/night-config). Supports **TOML**, **HOCON**, **JSON**, and **JSON5** formats with side-aware loading, comment support, validation, [Codec](#codec-backed-entries-structured-data)-backed structured data, and lifecycle-event-driven reloading.
 
 ---
 
@@ -84,6 +84,8 @@ import com.coolerpromc.coolerconfig.config.ConfigBuilder;
 import com.coolerpromc.coolerconfig.config.ConfigValue;
 import com.coolerpromc.coolerconfig.config.ConfigFormat;
 import com.coolerpromc.coolerconfig.config.ConfigSide;
+// only if you use defineCodec:
+import com.coolerpromc.coolerconfig.config.CoolerCodecs;
 // only if you need manual bulk-reload:
 import com.coolerpromc.coolerconfig.config.ConfigRegistry;
 ```
@@ -309,12 +311,115 @@ Built-in validators:
 | `defineList(...)` | must be a List |
 | `defineMap(path, default, comment)` | must be a Map |
 | `define(path, default, comment, validator)` | custom `Predicate<Object>` |
+| `defineCodec(path, codec, default, comment)` | the codec must decode the stored value |
 
 ```java
 // Custom validator — only allow specific string values
 .defineString("mode.type", "normal", "Game mode (normal/hard/extreme)",
         v -> v instanceof String s && Set.of("normal", "hard", "extreme").contains(s))
 ```
+
+---
+
+## Codec-backed entries (structured data)
+
+The `define*` methods above cover primitives, enums, lists, and flat maps. For **structured data** — records, nested objects, lists of objects, or maps whose values have mixed types — use `defineCodec` with a Mojang [`Codec`](https://forge.gemwire.uk/wiki/Codecs).
+
+The codec handles both directions (encode on save, decode on load) and **is** the validator: a value that fails to decode logs a warning and resets to the default.
+
+Codec entries work in **all four formats** — TOML, HOCON, JSON, and JSON5.
+
+### Structured objects
+
+```java
+public record Boss(String name, int health, double scale) {
+    public static final Codec<Boss> CODEC = RecordCodecBuilder.create(i -> i.group(
+            Codec.STRING.fieldOf("name").forGetter(Boss::name),
+            Codec.INT.fieldOf("health").forGetter(Boss::health),
+            Codec.DOUBLE.fieldOf("scale").forGetter(Boss::scale)
+    ).apply(i, Boss::new));
+}
+
+public static ConfigValue<Boss> BOSS;
+
+BOSS = builder.defineCodec("boss", Boss.CODEC,
+        new Boss("Ender Dragon", 200, 1.0), "Boss settings");
+```
+
+produces:
+
+```toml
+# Boss settings
+[boss]
+	name = "Ender Dragon"
+	health = 200
+	scale = 1.0
+```
+
+and reads back as a real `Boss`, with `int` and `double` fields — no casting:
+
+```java
+int health = BOSS.get().health();
+```
+
+Nesting works to any depth — a record containing records, or `Boss.CODEC.listOf()` for a list of objects (a TOML array-of-tables / JSON array of objects).
+
+### Maps with mixed value types
+
+When keys are dynamic and each value may independently be a boolean, number, or string, use `CoolerCodecs.PRIMITIVE`:
+
+| Constant | Type | Accepts |
+|---|---|---|
+| `CoolerCodecs.PRIMITIVE` | `Codec<Object>` | any boolean, number, or string |
+| `CoolerCodecs.PRIMITIVE_MAP` | `Codec<Map<String, Object>>` | `Codec.unboundedMap(Codec.STRING, PRIMITIVE)` |
+| `CoolerCodecs.PRIMITIVE_LIST` | `Codec<List<Object>>` | `PRIMITIVE.listOf()` |
+
+```java
+public static ConfigValue<Map<String, Object>> STUFF;
+
+STUFF = builder.defineCodec("general.stuff", CoolerCodecs.PRIMITIVE_MAP,
+        Map.of("enabled", true, "scale", 1.5, "count", 10, "label", "hello"),
+        "Mixed settings");
+```
+
+```toml
+# Mixed settings
+[general.stuff]
+	enabled = true
+	scale = 1.5
+	count = 10
+	label = "hello"
+```
+
+Because the declared value type is `Object`, numeric values come back as `Number` — read them through `Number`, never with a direct cast:
+
+```java
+Map<String, Object> m = STUFF.get();
+boolean enabled = (Boolean) m.get("enabled");
+double  scale   = ((Number) m.get("scale")).doubleValue();
+int     count   = ((Number) m.get("count")).intValue();   // correct
+// int  count   = (int) m.get("count");                   // ClassCastException on TOML
+String  label   = (String)  m.get("label");
+```
+
+> If you know a value's type ahead of time, prefer a record and `RecordCodecBuilder` — you get real
+> `int` / `double` fields with no casting at all. `PRIMITIVE_MAP` is for genuinely dynamic keys.
+
+### Numbers: `defineCodec` vs `defineMap`
+
+`defineMap` stores raw Night-Config values, so integers read back as `Long` from TOML/HOCON but as `Integer` from JSON/JSON5 — a direct `(int)` cast can throw.
+
+`defineCodec` does **not** have this problem for typed fields: a `Codec.INT` field always reads back as an `int` regardless of which format wrote the file.
+
+### HOCON caveat: map keys containing a dot
+
+`ConfigFormat.HOCON` **cannot round-trip a map key that contains a `.`**. HOCON reads an unquoted dot as a path separator and Night-Config's HOCON writer does not quote such keys, so the entry re-parses as a nested object, fails validation, and resets to its default on the next load. A `WARN` is logged when such a key is written.
+
+- Keys containing `:` — including resource locations like `minecraft:stone` — are **fine**.
+- TOML, JSON, and JSON5 handle **every** key shape correctly (dots, colons, spaces, underscores).
+- This affects map **keys** only — never record field names, nor the dotted `path` of the entry itself.
+
+Use TOML, JSON, or JSON5 if your map keys may contain dots.
 
 ---
 

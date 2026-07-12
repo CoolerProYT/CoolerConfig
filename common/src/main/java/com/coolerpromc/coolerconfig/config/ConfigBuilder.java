@@ -1,5 +1,7 @@
 package com.coolerpromc.coolerconfig.config;
 
+import com.mojang.serialization.Codec;
+
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -346,6 +348,75 @@ public final class ConfigBuilder {
      */
     public <T> ConfigValue<T> define(String path, T defaultValue, String comment, Predicate<Object> validator) {
         return put(path, defaultValue, comment, validator);
+    }
+
+    /**
+     * Declares an entry serialised by a Mojang {@link Codec} and returns a typed handle.
+     *
+     * <p>This is the general-purpose escape hatch for structured data: records, nested objects,
+     * lists of objects, and maps with heterogeneous values. The codec is used for both
+     * directions — encoding on save and decoding on load — and <em>is</em> the entry's
+     * validator: a value that fails to decode logs a warning and resets to {@code defaultValue}.
+     *
+     * <p>Encoding goes through {@link com.mojang.serialization.JavaOps}, which produces plain
+     * {@code Map}/{@code List}/boxed-primitive trees. Those are exactly the types Night-Config
+     * serialises, so codec entries work identically in <b>all four</b> {@link ConfigFormat}s —
+     * TOML, HOCON, JSON, and JSON5.
+     *
+     * <h4>Structured objects</h4>
+     * <pre>{@code
+     * record Boss(String name, int health, double scale) {
+     *     static final Codec<Boss> CODEC = RecordCodecBuilder.create(i -> i.group(
+     *             Codec.STRING.fieldOf("name").forGetter(Boss::name),
+     *             Codec.INT.fieldOf("health").forGetter(Boss::health),
+     *             Codec.DOUBLE.fieldOf("scale").forGetter(Boss::scale)
+     *     ).apply(i, Boss::new));
+     * }
+     *
+     * ConfigValue<Boss> BOSS = builder.defineCodec("boss", Boss.CODEC,
+     *         new Boss("Ender Dragon", 200, 1.0), "Boss settings");
+     * }</pre>
+     *
+     * <h4>Map with mixed primitive values</h4>
+     * Use {@link CoolerCodecs#PRIMITIVE} as the value codec — it accepts any boolean, number,
+     * or string and preserves the original type:
+     * <pre>{@code
+     * ConfigValue<Map<String, Object>> STUFF = builder.defineCodec("stuff",
+     *         CoolerCodecs.PRIMITIVE_MAP,
+     *         Map.of("enabled", true, "scale", 1.5, "count", 10, "label", "hi"),
+     *         "Mixed settings");
+     * }</pre>
+     *
+     * <h4>Number widening</h4>
+     * Unlike {@link #defineMap}, codec entries do <em>not</em> suffer the TOML {@code Long}
+     * widening problem: {@code JavaOps.getNumberValue} yields a raw {@link Number}, so a
+     * {@code Codec.INT} field reads back as an {@code int} no matter which format wrote it.
+     *
+     * <h4>HOCON caveat: map keys containing a dot</h4>
+     * {@link ConfigFormat#HOCON} cannot round-trip a <em>map key</em> that contains a {@code .},
+     * because HOCON reads an unquoted dot as a path separator and Night-Config's HOCON writer does
+     * not quote such keys. The entry re-parses as a nested object and resets to its default on the
+     * next load (a warning is logged when it is written). Keys containing {@code :} — including
+     * resource locations like {@code minecraft:stone} — are fine. TOML, JSON, and JSON5 handle
+     * every key shape correctly. This affects only map <em>keys</em>, never record field names or
+     * the dotted {@code path} of the entry itself.
+     *
+     * @param path         dot-separated key path
+     * @param codec        codec used to encode and decode this entry; must not be {@code null}
+     * @param defaultValue value used when the key is absent or fails to decode
+     * @param comment      human-readable description
+     * @param <T>          the Java type of the config value
+     * @return a {@link ConfigValue} handle for reading and writing this entry
+     * @throws IllegalArgumentException if {@code path} has already been declared
+     * @see CoolerCodecs
+     */
+    public <T> ConfigValue<T> defineCodec(String path, Codec<T> codec, T defaultValue, String comment) {
+        if (entries.containsKey(path)) {
+            throw new IllegalArgumentException("Duplicate config path: " + path);
+        }
+        ConfigEntry<T> entry = new ConfigEntry<>(path, defaultValue, comment, codec);
+        entries.put(path, entry);
+        return new ConfigValue<>(entry);
     }
 
     /**
