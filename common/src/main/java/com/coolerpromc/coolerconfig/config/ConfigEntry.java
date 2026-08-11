@@ -4,19 +4,24 @@ import com.coolerpromc.coolerconfig.Constants;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.JavaOps;
 
+import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Predicate;
 
 /**
  * A single typed key-value pair inside a {@link ConfigSpec}.
  *
- * <p>Instances are created exclusively by {@link ConfigBuilder} and are not part of the public
- * API — callers read values through the typed getters on {@link ConfigSpec} (e.g.
- * {@link ConfigSpec#getInt(String)}).
+ * <p>Instances are created exclusively by {@link ConfigBuilder}. Most code should read and write
+ * values through the {@link ConfigValue} handle returned by the {@code define*} methods rather
+ * than touching entries directly. Entries are exposed publicly (via {@link ConfigSpec#entries()})
+ * for generic tooling — a config screen that enumerates a spec without knowing its types ahead of
+ * time can use {@link #getType()}, {@link #getComment()}, and {@link #getDefaultValue()} to build
+ * widgets.
  *
  * <h2>Type coercion</h2>
  * Raw values from Night-Config do not always match the declared Java type, so
  * {@link #set(Object)} and {@link #validate(Object)} both pass the raw value through
- * {@link #coerce(Object)} before the validator predicate is tested:
+ * {@code coerce} before the validator predicate is tested:
  * <ul>
  *   <li><b>Numeric:</b> TOML integers arrive as {@code Long} and floats as {@code Double};
  *       coercion narrows them to the exact numeric type of the default value so that a
@@ -39,6 +44,12 @@ import java.util.function.Predicate;
  * codecs handle the TOML {@code Long}/{@code Double} widening automatically — a
  * {@code Codec.INT} field reads back as an {@code int} regardless of the file format.
  *
+ * <h2>Thread safety</h2>
+ * The current value is held in a {@code volatile} field. Reads from any thread always observe the
+ * most recently written value, which matters because
+ * {@linkplain ConfigBuilder#watchForChanges() file-watched} specs are reloaded on a background
+ * daemon thread while game threads are reading.
+ *
  * @param <T> the Java type of the config value (e.g. {@code Integer}, {@code Boolean},
  *            {@code String}, {@code List<String>}, {@code MyEnum}, or any codec-backed type)
  */
@@ -49,22 +60,22 @@ public final class ConfigEntry<T> {
     private final String comment;
     private final Predicate<Object> validator;
     private final Codec<T> codec;
-    private T value;
+    private volatile T value;
 
     /**
      * Creates a new validator-backed entry. Package-private — use {@link ConfigBuilder} instead.
      *
      * @param path         dot-separated key path, e.g. {@code "general.maxItems"}
      * @param defaultValue value used when the file is absent or contains an invalid entry
-     * @param comment      human-readable description written as a comment in TOML files;
+     * @param comment      human-readable description written as a comment in the config file;
      *                     may be empty but must not be {@code null}
      * @param validator    predicate run against the coerced file value; {@code null} means
      *                     any value of a compatible type is accepted
      */
     ConfigEntry(String path, T defaultValue, String comment, Predicate<Object> validator) {
-        this.path = path;
-        this.defaultValue = defaultValue;
-        this.comment = comment;
+        this.path = Objects.requireNonNull(path, "path");
+        this.defaultValue = Objects.requireNonNull(defaultValue, "defaultValue for '" + path + "'");
+        this.comment = Objects.requireNonNull(comment, "comment for '" + path + "'");
         this.validator = validator;
         this.codec = null;
         this.value = defaultValue;
@@ -80,20 +91,12 @@ public final class ConfigEntry<T> {
      * @param codec        the codec used to serialise and deserialise this entry
      */
     ConfigEntry(String path, T defaultValue, String comment, Codec<T> codec) {
-        this.path = path;
-        this.defaultValue = defaultValue;
-        this.comment = comment;
+        this.path = Objects.requireNonNull(path, "path");
+        this.defaultValue = Objects.requireNonNull(defaultValue, "defaultValue for '" + path + "'");
+        this.comment = Objects.requireNonNull(comment, "comment for '" + path + "'");
         this.validator = null;
-        this.codec = codec;
+        this.codec = Objects.requireNonNull(codec, "codec for '" + path + "'");
         this.value = defaultValue;
-    }
-
-    /**
-     * Returns {@code true} if this entry serialises through a {@link Codec} rather than a
-     * validator predicate.
-     */
-    boolean hasCodec() {
-        return codec != null;
     }
 
     /**
@@ -107,7 +110,7 @@ public final class ConfigEntry<T> {
 
     /**
      * Returns the value that this entry falls back to when the config file is absent or
-     * contains a value that fails {@link #validate(Object)}.
+     * contains a value that fails validation.
      *
      * @return the default value; never {@code null}
      */
@@ -116,13 +119,32 @@ public final class ConfigEntry<T> {
     }
 
     /**
-     * Returns the human-readable description of this entry. Used as a comment above the
-     * key when writing TOML files. Empty string if no comment was provided.
+     * Returns the human-readable description of this entry, written as a comment above the key
+     * in every format except {@link ConfigFormat#JSON}. Empty string if no comment was provided.
      *
      * @return the comment string; never {@code null}
      */
     public String getComment() {
         return comment;
+    }
+
+    /**
+     * Returns the runtime class of this entry's value, derived from its default.
+     *
+     * <p>Intended for generic tooling such as a config screen that picks a widget per entry:
+     * <pre>{@code
+     * for (ConfigEntry<?> entry : spec.entries()) {
+     *     if (entry.getType() == Boolean.class) addToggle(entry);
+     *     else if (Enum.class.isAssignableFrom(entry.getType())) addDropdown(entry);
+     *     // ...
+     * }
+     * }</pre>
+     *
+     * @return the value's class; never {@code null}
+     */
+    @SuppressWarnings("unchecked")
+    public Class<? extends T> getType() {
+        return (Class<? extends T>) defaultValue.getClass();
     }
 
     /**
@@ -139,34 +161,55 @@ public final class ConfigEntry<T> {
     }
 
     /**
-     * Updates the in-memory value directly, bypassing file I/O.
+     * Updates the in-memory value, reporting whether the new value was acceptable.
      *
-     * <p>Use this for in-game config screens. The value is expected to already be of this
-     * entry's Java type {@code T}. For validator-backed entries it is coerced and tested
-     * against the validator; for codec-backed entries it is checked by attempting to encode
-     * it. Values that fail either check silently fall back to the default. Call
-     * {@link ConfigSpec#save()} afterwards to persist the change to disk.
+     * <p>The value is validated exactly as if it had been read from the config file: for
+     * validator-backed entries it is coerced and tested against the validator; for codec-backed
+     * entries it is tested by attempting to encode it. <b>A rejected value leaves the entry
+     * unchanged</b> and returns {@code false} — unlike a rejected value read from disk, which
+     * resets the entry to its default.
      *
-     * <p>This is <em>not</em> the method used to load values from disk — see
-     * {@link #setRaw(Object)}.
+     * <p>Call {@link ConfigSpec#save()} afterwards to persist an accepted change to disk.
      *
-     * @param rawValue the new value to set
+     * @param newValue the new value to set
+     * @return {@code true} if the value was accepted and stored, {@code false} if it failed
+     *         validation and the entry was left untouched
      */
     @SuppressWarnings("unchecked")
-    public void set(Object rawValue) {
+    public boolean set(Object newValue) {
+        if (newValue == null) return false;
         if (codec != null) {
-            // A typed value is expected here; round-trip it through the codec to validate.
-            this.value = codec.encodeStart(JavaOps.INSTANCE, (T) rawValue).result().isPresent()
-                    ? (T) rawValue
-                    : defaultValue;
-            return;
+            try {
+                // The cast is unchecked, so a wrong-typed value reaches the codec and blows up
+                // inside a field getter rather than returning a failed DataResult.
+                if (codec.encodeStart(JavaOps.INSTANCE, (T) newValue).result().isEmpty()) return false;
+            } catch (ClassCastException e) {
+                return false;
+            }
+            this.value = (T) newValue;
+            return true;
         }
-        Object coerced = coerce(rawValue);
-        if (validator == null || validator.test(coerced)) {
-            this.value = (T) coerced;
-        } else {
-            this.value = defaultValue;
-        }
+        Object coerced = coerce(newValue);
+        if (validator != null && !validator.test(coerced)) return false;
+        this.value = (T) coerced;
+        return true;
+    }
+
+    /**
+     * Restores this entry's {@linkplain #getDefaultValue() default value}.
+     *
+     * <p>Call {@link ConfigSpec#save()} afterwards to persist the reset to disk.
+     */
+    public void reset() {
+        this.value = defaultValue;
+    }
+
+    /**
+     * Returns {@code true} if this entry serialises through a {@link Codec} rather than a
+     * validator predicate.
+     */
+    boolean hasCodec() {
+        return codec != null;
     }
 
     /**
@@ -175,19 +218,20 @@ public final class ConfigEntry<T> {
      * <p>{@link ConfigManager} hands over a plain-Java view of the file value ({@code Map},
      * {@code List}, or a boxed primitive — never a Night-Config type). Codec-backed entries
      * decode that tree with {@link JavaOps}; a decode failure logs a warning and resets the
-     * entry to its default. Validator-backed entries fall through to {@link #set(Object)}.
+     * entry to its default. Validator-backed entries coerce and store without re-validating —
+     * {@link ConfigManager} has already called {@link #validate(Object)} on the same value.
      *
      * @param rawValue the plain-Java value read from the file
      */
+    @SuppressWarnings("unchecked")
     void setRaw(Object rawValue) {
         if (codec != null) {
             this.value = codec.parse(JavaOps.INSTANCE, rawValue)
-                    .resultOrPartial(err -> Constants.LOG.warn(
-                            "[CoolerConfig] '{}': failed to decode value: {}", path, err))
+                    .resultOrPartial(err -> Constants.LOG.warn("'{}': failed to decode value: {}", path, err))
                     .orElse(defaultValue);
             return;
         }
-        set(rawValue);
+        this.value = (T) coerce(rawValue);
     }
 
     /**
@@ -201,6 +245,7 @@ public final class ConfigEntry<T> {
      * @return {@code true} if the value is valid for this entry
      */
     boolean validate(Object rawValue) {
+        if (rawValue == null) return false;
         if (codec != null) {
             return codec.parse(JavaOps.INSTANCE, rawValue).result().isPresent();
         }
@@ -216,14 +261,13 @@ public final class ConfigEntry<T> {
      * {@code List}, and boxed primitives that {@link ConfigManager} converts to Night-Config
      * types. All other entries return their value unchanged.
      *
-     * @return the encodable value, or {@code null} if a codec-backed value failed to encode
+     * @return the encodable value, or an empty optional if a codec-backed value failed to encode
      */
-    Object encode() {
-        if (codec == null) return value;
+    Optional<Object> encode() {
+        if (codec == null) return Optional.of(value);
         return codec.encodeStart(JavaOps.INSTANCE, value)
-                .resultOrPartial(err -> Constants.LOG.warn(
-                        "[CoolerConfig] '{}': failed to encode value: {}", path, err))
-                .orElse(null);
+                .resultOrPartial(err -> Constants.LOG.warn("'{}': failed to encode value: {}", path, err))
+                .map(o -> (Object) o);
     }
 
     /**
