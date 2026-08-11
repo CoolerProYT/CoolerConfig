@@ -67,7 +67,7 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 jar {
     finalizedBy('reobfJar')
-    manifest.attributes([
+    /*manifest.attributes([
             "MixinConfigs": "${mod_id}.mixins.json,${mod_id}.forge.mixins.json"
-    ])
+    ])*/
 }
