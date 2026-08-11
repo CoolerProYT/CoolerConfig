@@ -13,11 +13,8 @@ neoForge {
 }
 
 dependencies {
-    compileOnly group: 'org.spongepowered', name: 'mixin', version: '0.8.5'
-    // fabric and neoforge both bundle mixinextras, so it is safe to use it in common
-    compileOnly group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.5.3'
-    annotationProcessor group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.5.3'
-
+    // CoolerConfig has no mixins: it is a plain library that talks to the loaders through
+    // IPlatformHelper, so there is nothing to inject into the game.
     compileOnlyApi "com.electronwill.night-config:core:${night_config_version}"
     compileOnlyApi "com.electronwill.night-config:toml:${night_config_version}"
     compileOnlyApi "com.electronwill.night-config:hocon:${night_config_version}"
